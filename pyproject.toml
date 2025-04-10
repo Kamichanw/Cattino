@@ -1,0 +1,14 @@
+[build-system]
+requires = [ "setuptools>=70.0", "wheel",]
+build-backend = "setuptools.build_meta"
+
+[tool.mypy]
+ignore_missing_imports = true
+check_untyped_defs = true
+follow_imports = "skip"
+exclude = [ "^catin/third_party/.*",]
+
+[tool.catin]
+override_exist_tasks = true
+cascade_cancel_on_failure = true
+debugging = true

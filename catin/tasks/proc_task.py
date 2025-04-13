@@ -4,13 +4,10 @@ import inspect
 import subprocess
 import multiprocessing
 import psutil
-import logging
 from typing import Any, Callable, Dict, List, Optional, Union, overload
 
 from catin.tasks.interface import TaskStatus, DeviceRequiredTask
-from catin.utils import get_cache_dir, open_redirected_stream
-
-logger = logging.getLogger(__name__)
+from catin.utils import Magics, get_cache_dir, open_redirected_stream
 
 
 class ProcTask(DeviceRequiredTask):
@@ -165,6 +162,7 @@ class ProcTask(DeviceRequiredTask):
         self._stdout = open_redirected_stream(cache_dir, "stdout")
         self._stderr = open_redirected_stream(cache_dir, "stderr")
         if is_cmd_task:
+            self.cmd = Magics.resolve(self.cmd, task_name=self.name)
             self._proc = subprocess.Popen(
                 shlex.split(self.cmd),
                 stdout=self._stdout,

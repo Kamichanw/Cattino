@@ -2,9 +2,9 @@ import sys
 from typing import Union
 
 from catin.tasks.interface import TaskGroup, AbstractTask
-from catin.constants import TASK_GLOBALS_KEY
 from catin.settings import settings
-
+from catin.constants import TASK_GLOBALS_KEY
+from catin.utils import Magics
 
 def export(task: Union[AbstractTask, TaskGroup]) -> None:
     """
@@ -25,4 +25,4 @@ def export(task: Union[AbstractTask, TaskGroup]) -> None:
         )
 
 
-__all__ = ["export", "settings"]
+__all__ = ["export", "settings", "Magics"]

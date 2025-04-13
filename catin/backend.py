@@ -1,29 +1,77 @@
 import asyncio
+import logging
 import click
 import dill
-import logging
 import os
 import signal
 import sys
+import uvicorn
+from uvicorn.config import LOGGING_CONFIG
 from contextlib import asynccontextmanager
 from typing import Callable, Optional
 from collections.abc import Sequence
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
-import uvicorn
+from loguru import logger
 
-from catin.constants import CATIN_PORT, CATIN_HOST
 from catin.comms import Request, Response, TaskResponse
 from catin.core.task_scheduler import TaskScheduler
 from catin.tasks.interface import AbstractTask, TaskGroup, TaskStatus
 from catin.settings import settings
 from catin.utils import get_cache_dir, has_param_type, open_redirected_stream
 
-logger = logging.getLogger(__name__)
+
+class InterceptHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        frame, depth = logging.currentframe(), 2
+        while frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
+
+
+def setup_logging():
+    """
+    Replace the fastapi logger with loguru logger.
+    """
+    logger.configure(extra={"request_id": ""})
+    logger.remove()
+
+    log_format = (
+        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+        "<level>{level: ^4}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+        "<level>{message}</level>"
+    )
+
+    logger.add(
+        sys.stdout,
+        format=log_format,
+        level="DEBUG" if settings.debugging else "INFO",
+        enqueue=True,
+        backtrace=False,
+        diagnose=True,
+        colorize=True,
+    )
+
+    logger_name_list = [name for name in logging.root.manager.loggerDict]
+    for logger_name in logger_name_list:
+        _logger = logging.getLogger(logger_name)
+        _logger.setLevel(logging.INFO)
+        _logger.handlers = []
+        if "." not in logger_name:
+            _logger.addHandler(InterceptHandler())
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-
+    setup_logging()
     cache_dir = get_cache_dir("backend")
     os.makedirs(cache_dir, exist_ok=True)
     if app.state.redirect_output:
@@ -224,13 +272,13 @@ async def exit():
 @click.option(
     "--host",
     type=str,
-    default=CATIN_HOST,
+    required=False,
     help="Host to run the backend server on.",
 )
 @click.option(
     "--port",
     type=int,
-    default=CATIN_PORT,
+    required=False,
     help="Port to run the backend server on.",
 )
 @click.option(
@@ -240,13 +288,14 @@ async def exit():
     default=False,
     help="Whether to redirect backend outputs to files.",
 )
-def run(host: str, port: int, redirect_output: bool):
+def run(host: Optional[str], port: Optional[int], redirect_output: bool):
     app.state.redirect_output = redirect_output
     uvicorn.run(
         app,
-        host=host,
-        port=port,
+        host=host or settings.host,
+        port=port or settings.port,
         access_log=redirect_output and settings.debugging,
+        log_config=None,
     )
 
 

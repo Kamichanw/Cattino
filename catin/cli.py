@@ -19,13 +19,7 @@ from catin.constants import TASK_GLOBALS_KEY
 from catin.comms import Request, Response, start_backend, test_running
 from catin.tasks.proc_task import ProcTask
 from catin.tasks.interface import DeviceRequiredTask
-from catin.utils import get_cache_dir, get_catin_home, open_redirected_stream
-
-
-@click.group()
-def main():
-    """CLI tool for managing tasks."""
-    pass
+from catin.utils import Magics, get_cache_dir, get_catin_home, open_redirected_stream
 
 
 def print_response(
@@ -61,17 +55,124 @@ def print_response(
         echo(response.detail)
 
 
+class MagicString(click.ParamType):
+    name = "magic_string"
+
+    def convert(self, value, param, ctx):
+        if not isinstance(value, str):
+            self.fail(f"{value} is not a valid string", param, ctx)
+
+        return Magics.resolve(value)
+
+
+class DateTime(click.DateTime):
+    def __init__(
+        self,
+        formats: Optional[Sequence[str]] = None,
+        fill_default: Literal["latest", "earliest"] = "earliest",
+        **kwargs,
+    ):
+        super().__init__(
+            formats=formats
+            or [
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d %H",
+                "%Y-%m-%d",
+                "%Y-%m",
+                "%Y",
+            ],
+            **kwargs,
+        )
+        assert all(
+            fmt
+            for fmt in self.formats
+            if fmt
+            in [
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%d %H",
+                "%Y-%m-%dT%H",
+                "%Y-%m-%d",
+                "%Y-%m",
+                "%Y",
+            ]
+        )
+        self.fill_default = fill_default
+
+    def convert(
+        self, value: str, param: Optional[click.Parameter], ctx: Optional[click.Context]
+    ) -> Any:
+        if self.fill_default == "earliest":
+            return super().convert(value, param, ctx)
+        if isinstance(value, datetime):
+            return value
+
+        for fmt in self.formats:
+            try:
+                date_obj = datetime.strptime(value, fmt)
+                if fmt == "%Y":
+                    return date_obj.replace(date_obj.year, 12, 31, 23, 59, 59)
+                if fmt == "%Y-%m":
+                    return date_obj.replace(
+                        date_obj.year, date_obj.month, 31, 23, 59, 59
+                    )
+                if fmt == "%Y-%m-%d":
+                    return date_obj.replace(
+                        date_obj.year, date_obj.month, date_obj.day, 23, 59, 59
+                    )
+                if fmt in ["%Y-%m-%d %H", "%Y-%m-%dT%H"]:
+                    return date_obj.replace(
+                        date_obj.year,
+                        date_obj.month,
+                        date_obj.day,
+                        date_obj.hour,
+                        59,
+                        59,
+                    )
+                if fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"]:
+                    return date_obj.replace(
+                        date_obj.year,
+                        date_obj.month,
+                        date_obj.day,
+                        date_obj.hour,
+                        date_obj.minute,
+                        59,
+                    )
+                return date_obj
+
+            except ValueError:
+                continue
+
+        formats_str = ", ".join(map(repr, self.formats))
+        self.fail(
+            gettext.ngettext(
+                "{value!r} does not match the format {format}.",
+                "{value!r} does not match the formats {formats}.",
+                len(self.formats),
+            ).format(value=value, format=formats_str, formats=formats_str),
+            param,
+            ctx,
+        )
+
+
+@click.group()
+def main():
+    """CLI tool for managing tasks."""
+    pass
+
+
 @main.command()
 @click.option(
     "--host",
-    "-H",
     type=str,
     required=False,
     help="Host address for the backend.",
 )
 @click.option(
     "--port",
-    "-P",
     type=int,
     required=False,
     help="Port number for the backend.",
@@ -95,21 +196,19 @@ def meow():
 
 @main.command()
 @click.argument("name", type=str, required=False)
-def test(name):
+def test(name: Optional[str]):
     """
     Test whether the backend or a specific tasks is running. If the query target is running,
     the PID of the process will be printed.
     """
     response = Request.test(name)
 
-    if response.detail:
-        click.echo(response.detail)
     if response.error():
+        click.echo(response.detail)
         sys.exit(1)
 
     if name is None:
         name = "backend"
-
     if not response.ok():
         click.echo(f"{name} does not exist, has not started yet, or has already ended.")
     else:
@@ -188,6 +287,13 @@ def create(
         meow create script.py -s 2\n
         meow create script.py -s 3
     """
+    start_backend()
+    response = Request.test(timeout=None)  # wait until start
+    if response.error():
+        click.echo(response.detail)
+        sys.exit(1)
+
+    run_dir = get_cache_dir("", response.pid)
     if multirun and args:
         list_args = []
         parse_list = lambda value: (
@@ -227,6 +333,10 @@ def create(
         original_argv = sys.argv
         tasks = []
         for ex_args in extra_args:
+            ex_args = [
+                Magics.resolve(arg, run_dir=run_dir, task_name=task_name)
+                for arg in ex_args
+            ]
             sys.argv = [input] + list(ex_args)
             task_list = runpy.run_path(input).get(TASK_GLOBALS_KEY)
 
@@ -249,9 +359,11 @@ def create(
         except ValueError as e:
             click.echo(f"Invalid command string: {e}")
             sys.exit(1)
-        tasks = [[override_attrs(ProcTask(" ".join(cmd)))] for cmd in cmds]
-
-    start_backend()
+        cmd_strs = [
+            Magics.resolve(" ".join(cmd), run_dir=run_dir, task_name=task_name)
+            for cmd in cmds
+        ]
+        tasks = [[override_attrs(ProcTask(cmd_str))] for cmd_str in cmd_strs]
 
     response = Request.create([task for task_list in tasks for task in task_list])
     print_response(
@@ -299,6 +411,7 @@ def watch(name: Optional[str], stream: str):
     if name is None:
         name = "backend"
     else:
+        print(os.path.join(get_cache_dir(name, backend_pid), f"{stream}.log"))
         if not os.path.exists(
             os.path.join(get_cache_dir(name, backend_pid), f"{stream}.log")
         ):
@@ -558,8 +671,8 @@ def retrieve_setting_help():
     - `setting_name` (`setting_type`): `setting_description`
     """
     keys = list(settings.default_settings.keys())
-    types = [type(getattr(settings, key)).__name__ for key in keys]
-    descriptions = [getattr(type(settings), key).__doc__ for key in keys]
+    types = [settings.get_type(key).__name__ for key in keys]
+    descriptions = [settings.get_description(key) for key in keys]
     return "\n".join(
         f"- {key.replace('_', '-')} ({type}): {description}"
         for key, type, description in zip(keys, types, descriptions)
@@ -567,7 +680,7 @@ def retrieve_setting_help():
 
 
 set_docstring = f"""
-Change the settings of catin. The value will be evaluated as a Python expression.
+Change the settings of catin.
 
 \b
 Available settings:
@@ -592,7 +705,7 @@ Available settings:
     help="Show all current settings.",
 )
 @click.argument("setting", type=str, required=False)
-@click.argument("value", type=str, required=False)
+@click.argument("value", type=MagicString(), required=False)
 def set(reset: bool, show: bool, setting: Optional[str], value: Optional[str]):
     if show:
         if reset or setting or value:
@@ -602,7 +715,8 @@ def set(reset: bool, show: bool, setting: Optional[str], value: Optional[str]):
             sys.exit(1)
         click.echo(
             "\n".join(
-                f"{k.replace('_', '-')}: {v}" for k, v in sorted(settings.items())
+                f"{k.replace('_', '-')}: {v}"
+                for k, v in sorted(settings.all_settings.items())
             )
         )
         sys.exit(0)
@@ -630,109 +744,16 @@ def set(reset: bool, show: bool, setting: Optional[str], value: Optional[str]):
                 "Value is required. Use `meow set --help` to see available settings."
             )
             sys.exit(1)
-        value = eval(value)
 
     try:
         assert key is not None
+        old_value = settings.all_settings[key]
         setattr(settings, key, value)
+        if settings.all_settings[key] != old_value:
+            click.echo(f"Setting {setting} updated to {value}.")
     except Exception as e:
         click.echo(f"Error setting {setting}: {e}")
         sys.exit(1)
-
-    click.echo(f"Setting {setting} updated to {value}.")
-
-
-class DateTime(click.DateTime):
-    def __init__(
-        self,
-        formats: Optional[Sequence[str]] = None,
-        fill_default: Literal["latest", "earliest"] = "earliest",
-        **kwargs,
-    ):
-        super().__init__(
-            formats=formats
-            or [
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%Y-%m-%d %H",
-                "%Y-%m-%d",
-                "%Y-%m",
-                "%Y",
-            ],
-            **kwargs,
-        )
-        assert all(
-            fmt
-            for fmt in self.formats
-            if fmt
-            in [
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%dT%H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%Y-%m-%dT%H:%M",
-                "%Y-%m-%d %H",
-                "%Y-%m-%dT%H",
-                "%Y-%m-%d",
-                "%Y-%m",
-                "%Y",
-            ]
-        )
-        self.fill_default = fill_default
-
-    def convert(
-        self, value: str, param: Optional[click.Parameter], ctx: Optional[click.Context]
-    ) -> Any:
-        if self.fill_default == "earliest":
-            return super().convert(value, param, ctx)
-        if isinstance(value, datetime):
-            return value
-
-        for fmt in self.formats:
-            try:
-                date_obj = datetime.strptime(value, fmt)
-                if fmt == "%Y":
-                    return date_obj.replace(date_obj.year, 12, 31, 23, 59, 59)
-                if fmt == "%Y-%m":
-                    return date_obj.replace(
-                        date_obj.year, date_obj.month, 31, 23, 59, 59
-                    )
-                if fmt == "%Y-%m-%d":
-                    return date_obj.replace(
-                        date_obj.year, date_obj.month, date_obj.day, 23, 59, 59
-                    )
-                if fmt in ["%Y-%m-%d %H", "%Y-%m-%dT%H"]:
-                    return date_obj.replace(
-                        date_obj.year,
-                        date_obj.month,
-                        date_obj.day,
-                        date_obj.hour,
-                        59,
-                        59,
-                    )
-                if fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"]:
-                    return date_obj.replace(
-                        date_obj.year,
-                        date_obj.month,
-                        date_obj.day,
-                        date_obj.hour,
-                        date_obj.minute,
-                        59,
-                    )
-                return date_obj
-
-            except ValueError:
-                continue
-
-        formats_str = ", ".join(map(repr, self.formats))
-        self.fail(
-            gettext.ngettext(
-                "{value!r} does not match the format {format}.",
-                "{value!r} does not match the formats {formats}.",
-                len(self.formats),
-            ).format(value=value, format=formats_str, formats=formats_str),
-            param,
-            ctx,
-        )
 
 
 @main.command()
@@ -779,7 +800,7 @@ def clean(
     )
 
     def remove_cache(path: str, force: bool = False):
-        # in some platforms, getctime may return the last modified time
+        # NOTE: in some platforms, getctime may return the last modified time
         # instead of the creation time
         create_time = datetime.fromtimestamp(os.path.getctime(path)).replace(
             microsecond=0
@@ -790,13 +811,10 @@ def clean(
             or (after and create_time >= after)
         ):
             if current_cache_dir and (
-                path in current_cache_dir
-                or current_cache_dir in path
-                or path == os.path.join(catin_home, "settings")
+                os.path.commonpath([current_cache_dir, path])
+                in [current_cache_dir, path]
             ):
-                click.echo(
-                    f"{current_cache_dir} is currently in use, skipping deletion."
-                )
+                click.echo(f"{path} is currently in use, skipping deletion.")
                 return False
             if verbose:
                 click.echo(f"Deleting: {path}")
@@ -811,50 +829,40 @@ def clean(
     if all:
         if before or after:
             click.confirm(
-                "--all/-A option will ignore date/time options and delete all cache files and settings. Continue?",
+                "--all/-A option will ignore datetime options and delete all cache files and settings. Continue?",
                 abort=True,
             )
-        if response.ok():
+        if response.error():
             settings.clear()
-        for item in os.listdir(catin_home):
-            path = os.path.join(catin_home, item)
-            if current_cache_dir and (
-                path in current_cache_dir
-                or path == os.path.join(catin_home, "settings")
-            ):
-                continue
-            remove_cache(path, force=True)
-    else:
-        cache_list = [
-            str(dirs.parent)
-            for dirs in Path(catin_home).rglob("backend")
-            if dirs.is_dir()
-        ]
-        # build directory tree to remove empty parent dir
-        tree: dict = {}
-        for path in cache_list:
-            current = tree
-            for part in Path(path.removeprefix(catin_home)).parts:
-                current = current.setdefault(part, {})
 
-        def clean_dir_tree(prefix: str, d: dict):
-            for k, v in d.copy().items():
-                path = os.path.join(prefix, k)
-                if v == {}:
-                    # now, we have reached the leaf node
-                    if remove_cache(path):
-                        del d[k]
-                else:
-                    if clean_dir_tree(path, v):
-                        del d[k]
+    cache_list = [
+        str(dirs.parent) for dirs in Path(catin_home).rglob("backend") if dirs.is_dir()
+    ]
+    # build directory tree to remove empty parent dir
+    tree: dict = {}
+    for path in cache_list:
+        current = tree
+        for part in Path(path.removeprefix(catin_home)).parts:
+            current = current.setdefault(part, {})
 
-            return remove_cache(prefix) if prefix and not d else False
+    def clean_dir_tree(prefix: str, d: dict):
+        for k, v in d.copy().items():
+            path = os.path.join(prefix, k)
+            if v == {}:
+                # now, we have reached the leaf node
+                if remove_cache(path, force=all):
+                    del d[k]
+            else:
+                if clean_dir_tree(path, v):
+                    del d[k]
 
-        # change the key name of the root directory to ensure
-        # os.path.join works correctly. Otherwise, os.path.join(path, "/")
-        # will always return the root directory "/".
-        tree[""] = tree.pop("/")
-        clean_dir_tree(catin_home, tree)
+        return remove_cache(prefix, force=all) if prefix and not d else False
+
+    # change the key name of the root directory to ensure
+    # os.path.join works correctly. Otherwise, os.path.join(path, "/")
+    # will always return the root directory "/".
+    tree[""] = tree.pop("/")
+    clean_dir_tree(catin_home, tree)
 
     click.echo(f"Clean completed from {catin_home}.")
 

@@ -13,8 +13,6 @@ from catin import settings
 from catin.constants import CATIN_HOST, CATIN_PORT
 from catin.tasks.interface import AbstractTask, TaskGroup
 
-logger = logging.getLogger()
-
 
 class Message(BaseModel):
 
@@ -41,13 +39,14 @@ def send_request(
     expected_response_cls: type,
     request: Optional["Request"] = None,
     api: str = "post",
+    timeout: Optional[int] = None,
 ):
     """
-    Post a request to the backend. If the backend is not running, it will return a 503 error.
+    Post a request to the backend.
     """
     try:
         send_fn = getattr(requests.api, api, None)
-        url = f"http://{CATIN_HOST}:{CATIN_PORT}/{endpoint}"
+        url = f"http://{settings.host}:{settings.port}/{endpoint}"
         if send_fn is None:
             raise ValueError(f"Invalid API method: {api}")
         response: requests.Response = send_fn(
@@ -57,7 +56,7 @@ def send_request(
                 if request
                 else None
             ),
-            timeout=5,
+            timeout=timeout,
         )
         response_json: dict = response.json()
         response_json.setdefault("status_code", response.status_code)
@@ -86,12 +85,16 @@ def send_request(
 
 class Request(Message):
     @staticmethod
-    def create(tasks: Sequence[Union[AbstractTask, TaskGroup]]):
-        """Create a massage for creating tasks."""
-        return send_request("create", TaskResponse, Request(tasks=tasks))
+    def create(tasks: Sequence[Union[AbstractTask, TaskGroup]], timeout: int = 5):
+        """Create a message for creating tasks."""
+        return send_request(
+            "create", TaskResponse, Request(tasks=tasks), timeout=timeout
+        )
 
     @staticmethod
-    def kill(task_names: Optional[Sequence[str]], force: bool = False):
+    def kill(
+        task_names: Optional[Sequence[str]], force: bool = False, timeout: int = 5
+    ):
         """
         Kill task(s).
 
@@ -99,7 +102,7 @@ class Request(Message):
             task_names (str or list of str, *optional*): The name of tasks to kill. If None,
                 it will kill all tasks.
             force (bool): Whether to force kill the task(s). Default is False.
-
+            timeout (int): Timeout for the request. Default is 5.
         """
         return send_request(
             "kill",
@@ -108,65 +111,70 @@ class Request(Message):
                 task_names=task_names,
                 force=force,
             ),
+            timeout=timeout,
         )
 
     @staticmethod
-    def suspend(task_names: Sequence[str]):
+    def suspend(task_names: Sequence[str], timeout: int = 5):
         """Suspend task(s)"""
         return send_request(
             "suspend",
             TaskResponse,
             Request(task_names=task_names),
+            timeout=timeout,
         )
 
     @staticmethod
-    def resume(task_names: Optional[Sequence[str]]):
+    def resume(task_names: Optional[Sequence[str]], timeout: int = 5):
         """Resume task(s)"""
         return send_request(
             "resume",
             TaskResponse,
             Request(task_names=task_names),
+            timeout=timeout,
         )
 
     @staticmethod
-    def remove(task_names: Optional[Sequence[str]]):
+    def remove(task_names: Optional[Sequence[str]], timeout: int = 5):
         """Remove task(s)"""
         return send_request(
             "remove",
             TaskResponse,
             Request(task_names=task_names),
+            timeout=timeout,
         )
 
     @staticmethod
-    def exit():
+    def exit(timeout: int = 5):
         """Exit backend"""
-        return send_request("exit", Response)
+        return send_request("exit", Response, timeout=timeout)
 
     @staticmethod
-    def status():
+    def status(timeout: int = 5):
         """Get backend status"""
-        ...
+        return send_request("status", Response, timeout=timeout)
 
     @staticmethod
-    def monitor():
+    def monitor(timeout: int = 5):
         """Monitor backend"""
-        ...
+        return send_request("monitor", Response, timeout=timeout)
 
     @staticmethod
-    def test(name: Optional[str] = None):
+    def test(name: Optional[str] = None, timeout: int = 5):
         """
         Query the backend or a specific task whether it is running.
 
         Args:
             name (str, *optional*): The name of the task to query. If None or "backend", it will query the backend.
+            timeout (int): Timeout for the request. Default is 5.
 
         Returns:
-            Response: A reponse object containing the status code and an optional PID.
+            Response: A response object containing the status code and an optional PID.
                 1. If no target is found, the status code will be 404.
                 2. If the target is not running, the status code will be 202.
                 3. If the target is running, the status code will be 200 and the PID will be returned (if possible).
         """
-        return send_request("test", Response, Request(name=name))
+        return send_request("test", Response, Request(name=name), timeout=timeout)
 
 
 class Response(Message):
@@ -280,5 +288,3 @@ def start_backend(
 
         if blocking:
             proc.wait()
-        else:
-            time.sleep(3)  # wait for backend to start

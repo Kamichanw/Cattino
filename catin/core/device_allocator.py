@@ -1,12 +1,10 @@
-import logging
+import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from catin.platforms import current_platform
 
 if TYPE_CHECKING:
-    from catin.tasks.interface import TaskStatus, DeviceRequiredTask
-
-logger = logging.getLogger(__name__)
+    from catin.tasks.interface import DeviceRequiredTask
 
 
 class DeviceAllocator:
@@ -69,7 +67,7 @@ class DeviceAllocator:
         free_memory = {
             device_id: current_platform.get_device_free_memory(device_id)
             + current_platform.get_proc_memory_usage(
-                device_id=device_id, include_children=True
+                pid_or_proc=os.getpid(), device_id=device_id, include_children=True
             )
             for device_id in task.visible_devices
         }

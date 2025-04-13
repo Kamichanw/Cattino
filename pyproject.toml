@@ -8,7 +8,3 @@ check_untyped_defs = true
 follow_imports = "skip"
 exclude = [ "^catin/third_party/.*",]
 
-[tool.catin]
-override_exist_tasks = true
-cascade_cancel_on_failure = true
-debugging = true

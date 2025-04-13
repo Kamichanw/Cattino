@@ -6,6 +6,7 @@ import time
 import enum
 
 from typing import List, Optional, Union
+from catin.utils import is_valid_filename
 from catin.core.device_allocator import DeviceAllocator
 from catin.tasks.task_graph import TaskGraph
 
@@ -36,6 +37,8 @@ class AbstractTask(ABC):
         )
         if self.name == "backend":
             raise ValueError("Task name cannot be 'backend'. It is reserved for catin.")
+        if not is_valid_filename(self.name):
+            raise ValueError(f"'{self.name}' is not a valid task name. It should be a valid dirname.")
         self.create_time = time.time_ns()
         self.priority = priority
 

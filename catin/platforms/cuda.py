@@ -1,11 +1,3 @@
-from collections import namedtuple
-import subprocess
-from functools import lru_cache
-from typing import Any, Dict, List, Optional, Union
-
-from psutil import Process
-import psutil
-
 # SPDX-License-Identifier: Apache-2.0
 """Code inside this file can safely assume cuda platform, e.g. importing
 pynvml. However, it should not initialize cuda context.
@@ -13,7 +5,8 @@ pynvml. However, it should not initialize cuda context.
 
 import os
 from functools import wraps
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, TypeVar, Union
+import psutil
+from typing import Callable, List, Optional, TypeVar, Union
 
 import torch
 from typing_extensions import ParamSpec

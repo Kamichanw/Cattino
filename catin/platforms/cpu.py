@@ -1,4 +1,3 @@
-from collections import namedtuple
 from typing import Any, Dict, List, Optional, Union
 import uuid
 from psutil import Process

@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 # Modified from vLLM's codebase.
-import logging
 import traceback
 from typing import TYPE_CHECKING, Optional
 
@@ -8,7 +7,6 @@ from catin.utils import resolve_obj_by_qualname
 
 from .interface import Platform, PlatformEnum
 
-logger = logging.getLogger(__name__)
 
 def tpu_platform_plugin() -> Optional[str]:
     is_tpu = False

@@ -1,7 +1,8 @@
 import asyncio
-import logging
+import re
 import aiorwlock
 from dataclasses import dataclass, field
+from loguru import logger
 from typing import (
     Any,
     Callable,
@@ -15,8 +16,6 @@ from typing import (
 from catin.tasks.interface import AbstractTask, TaskGroup, TaskStatus
 from catin.tasks.task_graph import TaskGraph
 from catin.settings import settings
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,6 +75,7 @@ class TaskScheduler:
                 async with group_info.total_lock.reader_lock:
                     is_first = len(group_info.remaining) == len(group_info.total) - 1
 
+            logger.info(f"Start executing task {task.name}")
             try:
                 task.start()
 
@@ -92,6 +92,7 @@ class TaskScheduler:
                     task.on_task_end()
                 except Exception as e:
                     logger.exception(e)
+                logger.info(f"Task {task.name} finished with status {task.status}")
 
                 async def cascade_cancel(task):
                     successors = self._pending_tasks.get_successors(task)
@@ -214,16 +215,26 @@ class TaskScheduler:
         all_tasks_name = set(t.name for t in await self.all_tasks)
         duplicate_task_names = set(t.name for t in task_group.graph) & all_tasks_name
         if duplicate_task_names:
-            if not settings.override_exist_tasks:
+            if settings.override_exist_tasks == "forbid":
                 raise ValueError(
                     f"Tasks with the same name can be executed only once, but got duplicate task names: {', '.join(duplicate_task_names)}. "
-                    "Use `meow set override-exist-tasks True` to suppress this error."
+                    "Use `meow set override-exist-tasks allow` or `meow set override-exist-tasks rename` to suppress this error."
                 )
-            await self.remove(
-                [
-                    await self.get_task(name) for name in duplicate_task_names  # type: ignore
-                ]
-            )
+            elif settings.override_exist_tasks == "rename":
+                for t in task_group.graph:
+                    if t.name in duplicate_task_names:
+                        m = re.match(r"(.+)_([0-9]+)$", t.name)
+                        t.name = (
+                            f"{t.name}_1"
+                            if not m
+                            else f"{m.group(1)}_{int(m.group(2)) + 1}"
+                        )
+            else:
+                await self.remove(
+                    [
+                        await self.get_task(name) for name in duplicate_task_names  # type: ignore
+                    ]
+                )
 
         group_info = GroupInfo(
             total=set(task_group.tasks),

@@ -10,6 +10,7 @@ setup(
     name="catin",
     version="0.1.0",
     author="Kamichanw",
+    license="MIT",
     description="A Python task scheduling framework.",
     packages=find_packages(),
     include_package_data=True,

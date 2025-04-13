@@ -1,12 +1,17 @@
-from datetime import datetime
 import importlib
 import inspect
+import itertools
 import os
-from typing import Any, Optional, Union, get_args, get_origin
-
+import re
+import string
+import sys
 import psutil
 
-from catin.constants import CATIN_HOME, CACHE_DIR_FORMAT
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional, Sequence, Union, get_args, get_origin
+
+from catin.constants import CATIN_HOME, CACHE_DIR_FORMAT, DEFAULT_CATIN_HOME
 
 
 def import_pynvml():
@@ -55,14 +60,21 @@ def get_catin_home() -> str:
     """
     Get the path to the cache directory.
     """
+    if CATIN_HOME != DEFAULT_CATIN_HOME:
+        return os.path.abspath(CATIN_HOME)
+
     search_path = [
         os.path.join(os.getcwd(), "catin-dev"),
         os.path.join(os.getcwd(), "catin"),
     ]
     for path in search_path:
         if os.path.isdir(path):
-            return path
-    return CATIN_HOME
+            # if user installed catin with editable mode, the source code will be
+            # located in os.path.join(os.getcwd(), "catin"). we can't save logs in
+            # source dir, because `meow clean` will delete source code unexpectedly.
+            if "setup.py" not in os.listdir(path):
+                return path
+    return DEFAULT_CATIN_HOME
 
 
 def get_cache_dir(filename: str, backend_pid: Optional[int] = None) -> str:
@@ -70,7 +82,7 @@ def get_cache_dir(filename: str, backend_pid: Optional[int] = None) -> str:
     Get the current cache directory. Since the cache directory is based on the create time of the backend process,
     this function needs the process ID. If the process ID is not provided, it will use the current process ID.
     """
-    format_str = CACHE_DIR_FORMAT.replace("%n", filename)
+    format_str = Magics.resolve(CACHE_DIR_FORMAT, task_name=filename)
     cache_dir = os.path.join(
         get_catin_home(),
         datetime.fromtimestamp(psutil.Process(backend_pid).create_time()).strftime(
@@ -131,3 +143,116 @@ def has_param_type(func, types: tuple[type, ...], index: Optional[int] = None) -
         for p in params
         if p.annotation is not inspect.Parameter.empty
     )
+
+
+def is_valid_filename(
+    filename: Union[str, Path], additional_reserved: Optional[Sequence[str]] = None
+):
+    """
+    Check if filename is a valid filename in current platform.
+    """
+    is_windows = os.name == "nt"
+    unicode_filename = str(filename)
+
+    # precheck
+    if len(unicode_filename.strip()) == 0:
+        return False
+
+    # check length
+    byte_ct = len(unicode_filename.encode(sys.getfilesystemencoding()))
+    min_len, max_len = 1, 255
+    if not min_len <= byte_ct < max_len:
+        return False
+
+    # check reserve keyworks
+    additional_reserved = additional_reserved or ()
+    _WINDOWS_RESERVED_FILE_NAMES = additional_reserved + (
+        ("CON", "PRN", "AUX", "CLOCK$", "NUL")
+        + tuple(
+            f"{name:s}{num:d}"
+            for name, num in itertools.product(("COM", "LPT"), range(0, 10))
+        )
+        + tuple(
+            f"{name:s}{ssd:s}"
+            for name, ssd in itertools.product(
+                ("COM", "LPT"),
+                ("\N{SUPERSCRIPT ONE}", "\N{SUPERSCRIPT TWO}", "\N{SUPERSCRIPT THREE}"),
+            )
+        )
+    )
+    _MACOS_RESERVED_FILE_NAMES = additional_reserved + (":",)
+
+    if is_windows:
+        if unicode_filename in _WINDOWS_RESERVED_FILE_NAMES:
+            return False
+    else:
+        if unicode_filename in _MACOS_RESERVED_FILE_NAMES:
+            return False
+    unprintable_ascii_chars = [
+        chr(c) for c in range(128) if chr(c) not in string.printable
+    ]
+    _INVALID_PATH_CHARS = "".join(unprintable_ascii_chars)
+    _INVALID_FILENAME_CHARS = _INVALID_PATH_CHARS + "/"
+    _INVALID_WIN_PATH_CHARS = _INVALID_PATH_CHARS + ':*?"<>|\t\n\r\x0b\x0c'
+    _INVALID_WIN_FILENAME_CHARS = (
+        _INVALID_FILENAME_CHARS + _INVALID_WIN_PATH_CHARS + "\\"
+    )
+    _RE_INVALID_FILENAME = re.compile(
+        f"[{re.escape(_INVALID_FILENAME_CHARS):s}]", re.UNICODE
+    )
+    _RE_INVALID_WIN_FILENAME = re.compile(
+        f"[{re.escape(_INVALID_WIN_FILENAME_CHARS):s}]", re.UNICODE
+    )
+
+    if _RE_INVALID_FILENAME.findall(unicode_filename):
+        return False
+    if is_windows and _RE_INVALID_WIN_FILENAME.findall(unicode_filename):
+        return False
+
+    return True
+
+
+class Magics:
+    """Magic variables and resolvers for catin."""
+
+    @classmethod
+    def resolve(cls, string: str, **kwargs) -> str:
+        """Resolve magic variables and functions in a string."""
+        from catin.settings import settings
+
+        def _resolve(match):
+            expr = match.group(1)
+            try:
+                if ":" in expr:
+                    resolver_name, params_str = expr.split(":", 1)
+                    params = [Magics.resolve(p, **kwargs) for p in params_str.split(",")]
+                    return str(settings.resolvers[resolver_name](*params))
+                else:
+                    if kwargs[expr] is not None:
+                        return kwargs[expr]
+            except:
+                ...
+            return match.group(0)
+
+        return re.sub(r"\${(.+)}", _resolve, string.strip())
+
+    @classmethod
+    def register_new_resolver(cls, name: str, func):
+        """Register a new resolver."""
+        from catin.settings import settings
+
+        if not callable(func):
+            raise ValueError(f"Resolver {name} is not callable.")
+        settings.resolvers = {
+            **settings.resolvers,
+            name: func,
+        }
+
+    @classmethod
+    def register_new_variable(cls, name: str):
+        """Register a new magic variable."""
+        from catin.settings import settings
+
+        if not isinstance(name, str):
+            raise ValueError(f"Variable {name} is not a string.")
+        settings.magic_vars = settings.magic_vars + [name]

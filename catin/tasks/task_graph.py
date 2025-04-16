@@ -1,96 +1,118 @@
 import copy
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Union
 from catin.core.digraph import DiGraph
-
-if TYPE_CHECKING:
-    from catin.tasks.interface import AbstractTask
+from catin.tasks.interface import AbstractTask, Task, TaskGroup
 
 
 class TaskGraph:
+    """
+    TaskGraph is used to specify the dependencies between tasks. Although it allows task groups to
+    be added directly, each node within it still represents a single task.
+    """
+
     def __init__(self):
         super().__init__()
 
-        # map from task name to task
-        self._graph = DiGraph["AbstractTask"]()
-        self._task_map: Dict[str, "AbstractTask"] = {}
-        self._name_graph = DiGraph[str]()
+        self._task_map: Dict[str, Task] = {}
+        self._graph = DiGraph[Task]()
 
-    def get_task_by_name(self, task_name: str) -> Optional["AbstractTask"]:
-        return self._task_map.get(task_name, None)
-    
-    def get_successors(self, task: "AbstractTask") -> List["AbstractTask"]:
-        return self._graph.neighbors(task)
+    @property
+    def graph(self):
+        return self._graph
 
     @property
     def in_degree(self):
         return self._graph.in_degree
 
-    def add_task(self, task: "AbstractTask"):
-        """Add a task to the task graph."""
-        self._graph.add_node(task)
-        self._name_graph.add_node(task.name)
-        self._task_map[task.name] = task
+    def get_task_by_name(self, task_name: str) -> Optional[Task]:
+        return self._task_map.get(task_name, None)
 
-    def add_tasks_from(self, tasks: Sequence["AbstractTask"]):
-        """Add multiple tasks to the task graph."""
-        self._graph.add_nodes_from(tasks)
-        self._name_graph.add_nodes_from([task.name for task in tasks])
-        self._task_map.update({task.name: task for task in tasks})
+    def add_task(self, task: AbstractTask):
+        """Add a task or task group to the task graph."""
+        if issubclass(type(task), TaskGroup):
+            self.merge(task.graph)
+        else:
+            self._graph.add_node(task)
+            self._task_map[task.name] = task
 
+    def add_tasks_from(self, tasks: Sequence[AbstractTask]):
+        """Add multiple tasks or task groups to the task graph."""
+        for task in tasks:
+            self.add_task(task)
 
-    def add_edge(self, u: "AbstractTask", v: "AbstractTask"):
+    def add_edge(self, u: AbstractTask, v: AbstractTask):
         """
         Add a dependency edge from task u to task v, which means task u must be executed before task v.
+        If u or v is a task group, all tasks from u will add edges to all tasks in v.
         """
-        self._graph.add_edge(u, v)
-        self._name_graph.add_edge(u.name, v.name)
+        if issubclass(type(u), Task) and issubclass(type(v), Task):
+            self._graph.add_edge(u, v)
+        else:
+            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks
+            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks
+            for ut in u_tasks:
+                for vt in v_tasks:
+                    self._graph.add_edge(ut, vt)
 
-    def add_edges_from(self, edges: List[Tuple["AbstractTask", "AbstractTask"]]):
+    def add_edges_from(
+        self,
+        edges: List[Tuple[AbstractTask, AbstractTask]],
+    ):
         """Add multiple dependency edges to the task graph."""
-        self._graph.add_edges_from(edges)
-        self._name_graph.add_edges_from([(u.name, v.name) for u, v in edges])
+        for u, v in edges:
+            self.add_edge(u, v)
 
-    def remove_task(self, task: "AbstractTask"):
-        """Remove a task from the task graph."""
-        self._graph.remove_node(task)
-        self._name_graph.remove_node(task.name)
-        self._task_map.pop(task.name, None) # supress KeyError if task is not in the map
+    def remove_task(self, task: AbstractTask):
+        """Remove a task or all tasks from a group from the task graph."""
+        tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task]
+        for t in tasks:
+            self._graph.remove_node(t)
+            self._task_map.pop(t.name, None)
 
-    def remove_tasks_from(self, tasks: List["AbstractTask"]):
+    def remove_tasks_from(self, tasks: List[AbstractTask]):
         """Remove multiple tasks from the task graph."""
-        self._graph.remove_nodes_from(tasks)
-        self._name_graph.remove_nodes_from([task.name for task in tasks])
         for task in tasks:
-            self._task_map.pop(task.name, None)
+            self.remove_task(task)
 
-    def remove_edge(self, u: "AbstractTask", v: "AbstractTask"):
+    def remove_edge(self, u: AbstractTask, v: AbstractTask):
         """Remove a dependency edge from task u to task v."""
-        self._graph.remove_edge(u, v)
-        self._name_graph.remove_edge(u.name, v.name)
+        if issubclass(type(u), Task) and issubclass(type(v), Task):
+            self._graph.remove_edge(u, v)
+        else:
+            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks
+            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks
+            for ut in u_tasks:
+                for vt in v_tasks:
+                    self._graph.remove_edge(ut, vt)
 
-    def remove_edges_from(self, edges: List[Tuple["AbstractTask", "AbstractTask"]]):
+    def remove_edges_from(
+        self,
+        edges: List[Tuple[AbstractTask, AbstractTask]],
+    ):
         """Remove multiple dependency edges from the task graph."""
-        self._graph.remove_edges_from(edges)
-        self._name_graph.remove_edges_from([(u.name, v.name) for u, v in edges])
+        for u, v in edges:
+            self.remove_edge(u, v)
 
-    def merge(self, other_graph: "TaskGraph"):
-        """Merge another task graph into this task graph."""
-        self._graph.merge(other_graph._graph)
-        self._name_graph.merge(other_graph._name_graph)
-        self._task_map.update(other_graph._task_map)
-
-    def test_cycle(self, other_graph: "TaskGraph") -> bool:
-        """Check if adding another task graph would create a cycle."""
-        name_graph = copy.deepcopy(self._name_graph)
-        name_graph.merge(other_graph._name_graph)
-        return name_graph.has_cycle()
+    def has_cycle(self):
+        return self._graph.has_cycle()
 
     @property
-    def tasks(self):
+    def tasks(self) -> List[Task]:
+        """Return all tasks in the task graph."""
         return self._graph.nodes
+
+    def get_successors(self, task: "Task") -> List["Task"]:
+        return self._graph.neighbors(task)
+
+    def merge(self, graph: "TaskGraph"):
+        self._graph.merge(graph._graph)
+        self._task_map.update(graph._task_map)
+
+    def __len__(self):
+        return len(self._graph)
 
     def __iter__(self):
         return iter(self._graph)
 
-    def __len__(self):
-        return len(self._graph)
+    def __contains__(self, item):
+        return item in self._graph

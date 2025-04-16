@@ -3,15 +3,29 @@ import inspect
 import itertools
 import os
 import re
+import shlex
 import string
 import sys
 import psutil
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Sequence, Union, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    List,
+    Optional,
+    Sequence,
+    Union,
+    get_args,
+    get_origin,
+    overload,
+)
 
 from catin.constants import CATIN_HOME, CACHE_DIR_FORMAT, DEFAULT_CATIN_HOME
+
+if TYPE_CHECKING:
+    from catin.tasks.interface import Task, TaskGroup
 
 
 def import_pynvml():
@@ -47,11 +61,11 @@ def import_pynvml():
     return pynvml
 
 
-def resolve_obj_by_qualname(qualname: str) -> Any:
+def resolve_obj_by_qualname(fullname: str) -> Any:
     """
     Resolve an object by its fully qualified name.
     """
-    module_name, obj_name = qualname.rsplit(".", 1)
+    module_name, obj_name = fullname.rsplit(".", 1)
     module = importlib.import_module(module_name)
     return getattr(module, obj_name)
 
@@ -77,12 +91,39 @@ def get_catin_home() -> str:
     return DEFAULT_CATIN_HOME
 
 
+@overload
 def get_cache_dir(filename: str, backend_pid: Optional[int] = None) -> str:
     """
-    Get the current cache directory. Since the cache directory is based on the create time of the backend process,
+    Get the current cache directory with given filename. Since the cache directory is based on the create time of the backend process,
     this function needs the process ID. If the process ID is not provided, it will use the current process ID.
     """
-    format_str = Magics.resolve(CACHE_DIR_FORMAT, task_name=filename)
+    ...
+
+
+@overload
+def get_cache_dir(
+    task: Union["Task", "TaskGroup"], backend_pid: Optional[int] = None
+) -> str:
+    """
+    Get the current cache directory with given task. Since the cache directory is based on the create time of the backend process,
+    this function needs the process ID. If the process ID is not provided, it will use the current process ID.
+    """
+    ...
+
+
+def get_cache_dir(filename_or_task, backend_pid=None) -> str:
+
+    if isinstance(filename_or_task, str):
+        format_str = Magics.resolve(
+            CACHE_DIR_FORMAT, task_name=filename_or_task, fullname=filename_or_task
+        )
+    else:
+        format_str = Magics.resolve(
+            CACHE_DIR_FORMAT,
+            task_name=filename_or_task.name,
+            fullname=filename_or_task.fullname,
+        )
+
     cache_dir = os.path.join(
         get_catin_home(),
         datetime.fromtimestamp(psutil.Process(backend_pid).create_time()).strftime(
@@ -212,6 +253,34 @@ def is_valid_filename(
     return True
 
 
+def split_params(params_str: str) -> List[str]:
+    """
+    Split a comma-separated string to a list of parameters.
+    """
+    params = []
+    current_param = ""
+    inside = {"'": 0, '"': 0, "(": 0, ")": 0, "{": 0, "}": 0, "[": 0, "]": 0}
+
+    for char in params_str:
+        if (
+            char == ","
+            and inside["'"] % 2 == 0
+            and inside['"'] % 2 == 0
+            and inside["("] == inside[")"]
+            and inside["{"] == inside["}"]
+            and inside["["] == inside["]"]
+        ):
+            params.append(current_param.strip())
+            current_param = ""
+        else:
+            if char in inside:
+                inside[char] += 1
+            current_param += char
+    if current_param:
+        params.append(current_param.strip())
+    return params
+
+
 class Magics:
     """Magic variables and resolvers for catin."""
 
@@ -220,21 +289,31 @@ class Magics:
         """Resolve magic variables and functions in a string."""
         from catin.settings import settings
 
+        MAGICS = re.compile(r"\${([^{}]*(?:\{[^{}]*\}[^{}]*)*)}")
+
         def _resolve(match):
             expr = match.group(1)
             try:
                 if ":" in expr:
                     resolver_name, params_str = expr.split(":", 1)
-                    params = [Magics.resolve(p, **kwargs) for p in params_str.split(",")]
+                    params = [
+                        cls.resolve(p, **kwargs) for p in split_params(params_str)
+                    ]
                     return str(settings.resolvers[resolver_name](*params))
                 else:
-                    if kwargs[expr] is not None:
+                    if expr in settings.magic_constants:
+                        return settings.magic_constants[expr]
+                    if kwargs.get(expr) is not None:
                         return kwargs[expr]
-            except:
+            except Exception:
                 ...
             return match.group(0)
 
-        return re.sub(r"\${(.+)}", _resolve, string.strip())
+        new_string = MAGICS.sub(_resolve, string.strip())
+        while string != new_string:
+            string = new_string
+            new_string = cls.resolve(new_string, **kwargs)
+        return string
 
     @classmethod
     def register_new_resolver(cls, name: str, func):
@@ -255,4 +334,13 @@ class Magics:
 
         if not isinstance(name, str):
             raise ValueError(f"Variable {name} is not a string.")
-        settings.magic_vars = settings.magic_vars + [name]
+        settings.magic_vars = list(set(settings.magic_vars + [name]))
+
+    @classmethod
+    def register_new_constant(cls, name: str, value: str):
+        """Register a new magic variable."""
+        from catin.settings import settings
+
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise ValueError(f"The name and value of the constant must be string.")
+        settings.magic_constants = {**settings.magic_constants, name: value}

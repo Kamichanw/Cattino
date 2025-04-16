@@ -2,13 +2,13 @@
   <img src="../assets/illustration.png" alt="main" style="width: 50%;"/>
 </p>
 
-In this document, I will demonstrate all the common usages of catin. You can also directly view the help by running `meow <command> --help`.
+In this document, I will demonstrate all the common usages of `catin`. You can also directly view the help by running `meow <command> --help`.
 
 # Overall
-When you first create a task, catin will start a local server in the background. All commands are executed by sending instructions to this server. You can specify the host and port by setting the environment variables `CATIN_HOST` and `CATIN_PORT`.
+When you first create a task, `catin` will start a local server in the background. All commands are executed by sending instructions to this server. You can specify the host and port by setting the environment variables `CATIN_HOST` and `CATIN_PORT`.
 
 ## How Tasks to be Scheduled?
-Each task has a creation time (`task.create_time`) and a priority (`task.priority`). When tasks meet preconditions, e.g. device requirements, catin always runs tasks in the following order:  
+Each task has a creation time (`task.create_time`) and a priority (`task.priority`). When tasks meet preconditions, e.g. device requirements, `catin` always runs tasks in the following order:  
 1. Tasks with no dependencies or whose dependencies have all been executed.  
 2. Tasks with the highest priority.  
 3. Tasks with the earliest creation time.
@@ -29,10 +29,10 @@ Sometimes, you may want to directly observe the backend's output, especially whe
 
 To check whether the backend server is running, you can use `meow test`. This command can also be used to check if a specific task is running: `meow test {task-name}`. If it is running, you will get the process ID (PID).
 
-To exit catin, you can use `meow exit`. This will send a kill signal to all running tasks and shut down the server process.
+To exit `catin`, you can use `meow exit`. This will send a kill signal to all running tasks and shut down the server process.
 
 # Create Tasks
-catin supports two methods for creating tasks:  
+`catin` supports two methods for creating tasks:  
 1. By using a string: `meow create "command"`.  
 2. By running a Python file and exporting the task object from it: `meow create script.py`.
 
@@ -80,7 +80,7 @@ catin.export(graph)
 
 `ProcTask` accepts a command string or a function as input, and it will run as a subprocess when the device conditions are met.
 `TaskGroup` accepts a task list or a `TaskGraph`, assembling multiple tasks and executing them in the form of a directed acyclic graph.
-Once everything is set up, you also need to use `catin.export` to export the task or task group so that catin can discover the object. A more complex example can be found [here](./example.py).
+Once everything is set up, you also need to use `catin.export` to export the task or task group so that `catin` can discover the object. A more complex example can be found [here](./example.py).
 
 ## Passing Arguments
 A command to be executed usually allows multiple options to perform more complex functions. Suppose `train.py` uses `argparse` to accept `--lr` to set the learning rate. You can use:
@@ -104,7 +104,7 @@ meow create "python train.py" -m -- --lr [0.1,0.3]
 
 
 ## Integrate with `hydra`
-`Hydra` saves the configurations of a running application to a specific folder, which is specified by `hydra.run.dir` (see the [official documentation](https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/)). It is very convenient to save both `hydra` output files and catin task outputs to the same directory. To achieve this, you can use catin like this:
+`Hydra` saves the configurations of a running application to a specific folder, which is specified by `hydra.run.dir` (see the [official documentation](https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/)). It is very convenient to save both `hydra` output files and `catin` task outputs to the same directory. To achieve this, you can use `catin` like this:
 
 ```shell
 meow create "python train.py" -- hydra.run.dir="\${run_dir}/\${task_name}"
@@ -113,7 +113,7 @@ meow create "python train.py" -- hydra.run.dir="\${run_dir}/\${task_name}"
 Here, `${run_dir}` and `${task_name}` are catin's Magic variables (see [Magic String](#magic-string)), which will be replaced with the actual run directory and task name when the command is executed.
 
 # Magic String
-Catin supports variable interpolation. Interpolations are evaluated lazily upon access. We refer to strings that support this functionality as magic strings. This allows you to easily use lazily initialized variables or functions in commands, simplifying the writing of Catin commands. For example, you can use the following command to output the log directory and task name of a new task:
+`catin` supports variable interpolation. Interpolations are evaluated lazily upon access. We refer to strings that support this functionality as magic strings. This allows you to easily use lazily initialized variables or functions in commands, simplifying the writing of `catin` commands. For example, you can use the following command to output the log directory and task name of a new task:
 
 ```shell
 meow create "echo" -- \${run_dir} \${task_name}
@@ -126,14 +126,14 @@ When the command is actually executed, `\${run_dir}` and `\${task_name}` will be
 
 You can also use functions within magic strings, which we call resolvers:
 
-```
+```shell
 meow create "echo" -- \${eval: '1+2'}
 # output: 3
 ```
 
 The syntax is `${function: args1, args2, ...}`.
 
-You can also register new magic variables or resolvers:
+You can also register new magic variables, magic constants or resolvers:
 
 ```python
 from catin import Magics
@@ -146,12 +146,61 @@ print(Magics.resolve("I am ${name}, ${add:10,10} years-old.", name="Ann"))
 
 ## Builtin Magic Variables
 
-| Name | Description |
-|:--:|:--:|
-| `task_name` | name of the task |
-| `run_dir` | dirname of the current runnning backend |
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:center;">Name</th>
+      <th style="text-align:center;">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align:center;">task_name</td>
+      <td>name of the task</td>
+    </tr>
+    <tr>
+      <td style="text-align:center;">run_dir</td>
+      <td>dirname of the current running backend, same as catin.where()</td>
+    </tr>
+    <tr>
+      <td style="text-align:center;">fullname</td>
+      <td>fullname is composed of the full group name and task name, separated by a period (.)</td>
+    </tr>
+  </tbody>
+</table>
+
+## Builtin Magic Constants
+Magic constants are a set of predefined string pairs that replace parts of the string.
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:center;">Name</th>
+      <th style="text-align:center;">Value</th>
+      <th style="text-align:center;">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align:center;">fullpath</td>
+      <td style="text-align:center;">${eval:'${fullpath}'.replace('/', os.path.sep)}</td>
+      <td> Replace '/' in fullname with directory separator. </td>
+    </tr>
+  </tbody>
+</table>
 
 ## Builtin Resovlers
-| Name | Description |
-|:--:|:--:|
-| `eval` | same as `eval` in Python |
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:center;">Name</th>
+      <th style="text-align:center;">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align:center;">eval</td>
+      <td>same as eval in Python</td>
+    </tr>
+  </tbody>
+</table>

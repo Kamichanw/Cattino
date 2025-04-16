@@ -8,8 +8,8 @@
 # Installation
 In the current version, only installation from source is supported.
 ```bash
-git clone https://github.com/Kamichanw/Catin.git
-cd ./Catin
+git clone https://github.com/Kamichanw/catin.git
+cd ./catin
 pip install -e .
 ```
 Once the installation is complete, you can use `meow meow` in the command line terminal. If the installation is successful, it will output the current version number.
@@ -35,4 +35,4 @@ meow create "python train.py" -- --lr 0.2
 
 > [!TIP]
 > You can also set dependencies between tasks, ensuring that certain tasks must execute after others. Alternatively, some tasks can run in parallel (if possible). 
-> For more details, refer to the [basic usage](./docs/basic_usages.md).
+> For more details, refer to the [basic usage](./docs/basic_usage.md).

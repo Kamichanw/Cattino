@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import random
 import time
 
@@ -9,24 +10,24 @@ from catin.tasks import TaskGroup, TaskGraph, ProcTask
 
 class MyTask(ProcTask):
 
-    def on_task_start(self):
-        super().on_task_start()
+    def on_start(self):
+        super().on_start()
         print(f"Task {self.name} started")
 
-    def on_task_end(self):
+    def on_end(self):
         # make sure call super() first
-        super().on_task_end()
+        super().on_end()
         print(f"Task {self.name} ended")
 
 
 class MyTaskGroup(TaskGroup):
     def __init__(self, tasks, execute_strategy="sequential"):
-        super().__init__(tasks, execute_strategy)
+        super().__init__(tasks=tasks, execute_strategy=execute_strategy)
 
-    def on_task_group_start(self):
+    def on_start(self):
         print("Task group started")
 
-    def on_task_group_end(self):
+    def on_end(self):
         print("Task group ended")
 
 
@@ -58,7 +59,17 @@ g = TaskGraph()
 g.add_tasks_from(tasks)
 g.add_edges_from([(tasks[0], tasks[i]) for i in range(1, len(tasks) - 1)])
 g.add_edges_from([(tasks[i], tasks[-1]) for i in range(len(tasks) - 1)])
-tasks_group = MyTaskGroup(g, "dag")
+tasks_group = MyTaskGroup(tasks=tasks, execute_strategy=g)
 
 catin.export(tasks_group)
-catin.export(MyTask(progress_bar_task, task_name=f"{num}process-bar"))
+# catin.export(MyTask(progress_bar_task, task_name=f"{num}process-bar"))
+
+# from catin.core.task_scheduler import TaskScheduler
+# scheduler = TaskScheduler()
+# async def main():
+#     await scheduler.dispatch(tasks_group)
+#     result = await scheduler.step()
+#     print(result)
+
+
+# asyncio.run(main())

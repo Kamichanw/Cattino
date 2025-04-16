@@ -1,8 +1,6 @@
-from datetime import datetime
 import gettext
 import itertools
 import os
-from pathlib import Path
 import re
 import runpy
 import shlex
@@ -12,14 +10,22 @@ import threading
 import time
 import click
 
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, List, Literal, Optional, Sequence, Tuple
 
 from catin import settings
 from catin.constants import TASK_GLOBALS_KEY
-from catin.comms import Request, Response, start_backend, test_running
+from catin.comms import Request, Response, start_backend, test_running, where
 from catin.tasks.proc_task import ProcTask
-from catin.tasks.interface import DeviceRequiredTask
-from catin.utils import Magics, get_cache_dir, get_catin_home, open_redirected_stream
+from catin.tasks.interface import DeviceRequiredTask, TaskGroup
+from catin.utils import (
+    Magics,
+    get_cache_dir,
+    get_catin_home,
+    open_redirected_stream,
+    split_params,
+)
 
 
 def print_response(
@@ -263,6 +269,13 @@ def test(name: Optional[str]):
     default=False,
     help='Expand list arguments after "--" into multiple independent commands.',
 )
+@click.option(
+    "--as-group",
+    "-g",
+    required=False,
+    type=str,
+    help="Pack tasks into a group with given name.",
+)
 @click.argument("args", nargs=-1)
 def create(
     input: str,
@@ -272,37 +285,37 @@ def create(
     requires_memory_per_device: Optional[int],
     min_devices: Optional[int],
     multirun: bool,
+    as_group: Optional[str],
     args: Tuple[str],
 ):
     """
-    Create a new task from a Python script or command string.\n
+    Create a new task from a Python script or command string.
     To create a task from a Python script, use `catin.export` to export an object
-    inheriting from `catin.tasks.AbstractTask` in that Python script. \n
-    It could be also possible to
-    pass extra arguments to the Python script or command by appending them after `--`. In particular,
-    if the `--multirun` flag is set, list arguments (e.g., `[1, 2, 3]`) will be expanded into multiple
-    independent commands. For example, `meow create script.py --expand -- -s [1, 2, 3]` will be
-    equivalent to the following three executions:\n
-        meow create script.py -s 1\n
-        meow create script.py -s 2\n
-        meow create script.py -s 3
+    inheriting from `catin.tasks.Task` or `catin.tasks.TaskGroup` in that Python script.
     """
     start_backend()
-    response = Request.test(timeout=None)  # wait until start
-    if response.error():
-        click.echo(response.detail)
+    run_dir = where()
+    fullname = f"{as_group}/{task_name}" if as_group and task_name else None
+    if run_dir is None:
+        click.echo("Faild to start backend.")
         sys.exit(1)
+    # add cwd to path to load modules in user-provided python script
+    sys.path.insert(0, os.getcwd())
+    extra_paths = sys.path
 
-    run_dir = get_cache_dir("", response.pid)
     if multirun and args:
         list_args = []
         parse_list = lambda value: (
-            value[1:-1].split(",")
+            split_params(value[1:-1])
             if value.startswith("[") and value.endswith("]")
             else [value]
         )
 
         for arg in args:
+            arg = Magics.resolve(
+                arg, run_dir=run_dir, task_name=task_name, fullname=fullname
+            )
+
             if "=" in arg:
                 key, value = arg.split("=", 1)
                 list_args.append([f"{key}={v}" for v in parse_list(value)])
@@ -333,13 +346,8 @@ def create(
         original_argv = sys.argv
         tasks = []
         for ex_args in extra_args:
-            ex_args = [
-                Magics.resolve(arg, run_dir=run_dir, task_name=task_name)
-                for arg in ex_args
-            ]
             sys.argv = [input] + list(ex_args)
-            task_list = runpy.run_path(input).get(TASK_GLOBALS_KEY)
-
+            task_list = runpy.run_path(input, run_name="__main__").get(TASK_GLOBALS_KEY)
             if not task_list:
                 click.echo(
                     "The input file does not contain a valid task object with command\n"
@@ -360,12 +368,26 @@ def create(
             click.echo(f"Invalid command string: {e}")
             sys.exit(1)
         cmd_strs = [
-            Magics.resolve(" ".join(cmd), run_dir=run_dir, task_name=task_name)
+            Magics.resolve(
+                " ".join(cmd), run_dir=run_dir, task_name=task_name, fullname=fullname
+            )
             for cmd in cmds
         ]
         tasks = [[override_attrs(ProcTask(cmd_str))] for cmd_str in cmd_strs]
 
-    response = Request.create([task for task_list in tasks for task in task_list])
+    expanded_tasks = [task for task_list in tasks for task in task_list]
+    response = Request.create(
+        (
+            [
+                TaskGroup(
+                    expanded_tasks, execute_strategy="parallel", group_name=as_group
+                )
+            ]
+            if as_group
+            else expanded_tasks
+        ),
+        extra_paths=extra_paths,
+    )
     print_response(
         response,
         lambda success: (
@@ -411,7 +433,6 @@ def watch(name: Optional[str], stream: str):
     if name is None:
         name = "backend"
     else:
-        print(os.path.join(get_cache_dir(name, backend_pid), f"{stream}.log"))
         if not os.path.exists(
             os.path.join(get_cache_dir(name, backend_pid), f"{stream}.log")
         ):
@@ -430,6 +451,7 @@ def watch(name: Optional[str], stream: str):
                     is_running.set()
             except Exception:
                 is_running.set()
+                raise
 
     threading.Thread(target=running_test, daemon=True).start()
 
@@ -800,6 +822,8 @@ def clean(
     )
 
     def remove_cache(path: str, force: bool = False):
+        if not os.path.exists(path):
+            return False
         # NOTE: in some platforms, getctime may return the last modified time
         # instead of the creation time
         create_time = datetime.fromtimestamp(os.path.getctime(path)).replace(
@@ -861,7 +885,7 @@ def clean(
     # change the key name of the root directory to ensure
     # os.path.join works correctly. Otherwise, os.path.join(path, "/")
     # will always return the root directory "/".
-    tree[""] = tree.pop("/")
+    tree[""] = tree.pop("/", {})
     clean_dir_tree(catin_home, tree)
 
     click.echo(f"Clean completed from {catin_home}.")

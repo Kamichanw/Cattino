@@ -77,13 +77,20 @@ class Settings(BaseModel):
     )
     port: int = Field(CATIN_PORT, description="The port to use for the catin server.")
     host: str = Field(CATIN_HOST, description="The host to use for the catin server.")
+
+    magic_constants: Dict[str, str] = Field(
+        {
+            "fullpath": "${eval:'${fullname}'.replace('/', '%s')}"
+        },
+        description="Pre-defined constants to use in magic string.",
+    )
     magic_vars: List[str] = Field(
-        ["task_name", "run_dir"],
-        description="List of magic variables to use in cli.",
+        ["task_name", "run_dir", "fullname"],
+        description="Replacible variables to use in magic string.",
     )
     resolvers: Dict[str, Callable] = Field(
         {"eval": lambda x: eval(x)},
-        description="Dictionary of resolvers to use in cli.",
+        description="Resolvers to use in magic string.",
     )
 
     # this variable is used to prevent calling custom setter recursively

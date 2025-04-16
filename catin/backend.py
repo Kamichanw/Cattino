@@ -5,8 +5,8 @@ import dill
 import os
 import signal
 import sys
+import fastapi
 import uvicorn
-from uvicorn.config import LOGGING_CONFIG
 from contextlib import asynccontextmanager
 from typing import Callable, Optional
 from collections.abc import Sequence
@@ -15,7 +15,7 @@ from loguru import logger
 
 from catin.comms import Request, Response, TaskResponse
 from catin.core.task_scheduler import TaskScheduler
-from catin.tasks.interface import AbstractTask, TaskGroup, TaskStatus
+from catin.tasks.interface import Task, TaskGroup, TaskStatus
 from catin.settings import settings
 from catin.utils import get_cache_dir, has_param_type, open_redirected_stream
 
@@ -71,13 +71,13 @@ def setup_logging():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_logging()
     cache_dir = get_cache_dir("backend")
     os.makedirs(cache_dir, exist_ok=True)
     if app.state.redirect_output:
         sys.stdout = open_redirected_stream(cache_dir, "stdout")
         sys.stderr = open_redirected_stream(cache_dir, "stderr")
 
+    setup_logging()
     shutdown_event = asyncio.Event()
     task_scheduler = TaskScheduler()
     app.state.task_scheduler = task_scheduler
@@ -85,9 +85,8 @@ async def lifespan(app: FastAPI):
     async def main_loop():
         while not shutdown_event.is_set():
             try:
-                has_work = await task_scheduler.step()
-                if not has_work:
-                    await asyncio.sleep(5)
+                await task_scheduler.step()
+                await asyncio.sleep(5)
             except Exception as e:
                 logger.exception("Error during task scheduling loop: %s", e)
 
@@ -122,7 +121,7 @@ async def process_tasks(
     # otherwise, we will pass the task one by one and try to capture the exception
     assert asyncio.iscoroutinefunction(func), "func must be a coroutine function"
     is_take_sequence_func = has_param_type(func, (Sequence,), 0)
-    is_take_task_func = has_param_type(func, (AbstractTask, TaskGroup), 0)
+    is_take_task_func = has_param_type(func, (Task, TaskGroup), 0)
     assert (
         is_take_task_func or is_take_sequence_func
     ), "func must take a task or a sequence of tasks as the first argument"
@@ -144,7 +143,7 @@ async def process_tasks(
                     success.append(name)
                 except Exception as e:
                     logger.exception(e)
-                    exception.append(f"Task {task.name} failed: {str(e)}")
+                    exception.append(f"Task {task.fullname} failed: {str(e)}")
                     failure.append(name)
         else:
             no_op.append(name)
@@ -160,7 +159,7 @@ async def process_tasks(
             exception.append(f"Some tasks failed: {str(e)}")
             failure.extend(selected_task_names)
 
-    detail = "\n".join(exception) if exception else None
+    detail = "\n".join(exception)
     if not_found and not success and not no_op and not failure:
         # if all tasks are not found, we will return 404
         return TaskResponse(
@@ -173,11 +172,16 @@ async def process_tasks(
     return TaskResponse(success=success, no_op=no_op, failure=failure, detail=detail)
 
 
-def load_from_message(message: UploadFile = File(...)):
+def load_from_message(message: UploadFile = File(...), request: fastapi.Request = None):
     """
     Load the request from the uploaded file.
     """
     msg = message.file.read()
+    old_path = sys.path
+    # add extra paths to load user-defined modules
+    extra_modules = request.headers.get("X-Extra-Path", None)
+    if extra_modules:
+        sys.path = list(set(extra_modules.split(",") + sys.path))
     try:
         request = dill.loads(msg)
     except Exception as e:
@@ -186,6 +190,7 @@ def load_from_message(message: UploadFile = File(...)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to load request: {e}",
         )
+    sys.path = old_path
     return request
 
 
@@ -232,7 +237,7 @@ async def resume(request: Request = Depends(load_from_message)):
 @app.post("/create", response_model=TaskResponse)
 async def create_task(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    success, failure = [], []
+    success, failure, exception = [], [], []
     for task in request.tasks:
         name = task.name
         try:
@@ -241,8 +246,9 @@ async def create_task(request: Request = Depends(load_from_message)):
         except Exception as e:
             logger.exception(e)
             failure.append(name)
+            exception.append(f"Task failed: {task.fullname}")
 
-    return TaskResponse(success=success, failure=failure)
+    return TaskResponse(success=success, failure=failure, detail="\n".join(exception))
 
 
 @app.post("/test", response_model=Response)
@@ -264,6 +270,8 @@ async def test(request: Request = Depends(load_from_message)):
 
 @app.post("/exit", response_model=Response)
 async def exit():
+    scheduler: TaskScheduler = app.state.task_scheduler
+    await scheduler.remove(await scheduler.all_tasks)
     os.kill(os.getpid(), signal.SIGINT)
     return Response(status_code=status.HTTP_200_OK)
 

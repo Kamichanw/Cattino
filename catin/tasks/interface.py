@@ -1,14 +1,19 @@
 from abc import ABC, abstractmethod
-from collections import Counter
+import itertools
 import random
 import string
 import time
 import enum
 
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union, TYPE_CHECKING
+from collections import Counter
+
 from catin.utils import is_valid_filename
 from catin.core.device_allocator import DeviceAllocator
-from catin.tasks.task_graph import TaskGraph
+
+
+if TYPE_CHECKING:
+    from catin.tasks.task_graph import TaskGraph
 
 
 class TaskStatus(enum.Enum):
@@ -19,7 +24,50 @@ class TaskStatus(enum.Enum):
     Failed = enum.auto()  # The task has finished with an error
 
 
-class AbstractTask(ABC):
+class AbstractTask:
+    def __init__(self, name: str):
+        self.name = name
+        self._group: Optional["TaskGroup"] = None
+        if self.name == "backend":
+            raise ValueError("Task name cannot be 'backend'. It is reserved for catin.")
+        if not is_valid_filename(self.name):
+            raise ValueError(
+                f"'{self.name}' is not a valid task name. It should be a valid dirname."
+            )
+
+    @property
+    def group(self) -> Optional["TaskGroup"]:
+        """Get the group that the task belongs to. If the task belongs to any group, it returns None."""
+        return self._group
+
+    @property
+    def fullname(self) -> str:
+        """
+        Obtain the task's fullname, which is composed of the full group name and task name, separated by a `/`.
+        For example, if task `t` is within group `g`, and group `g` is within group `G`, then the `fullname` of `t` would be "G.g.t".
+        """
+        if self.group:
+            return f"{self.group.fullname}/{self.name}"
+        return self.name
+
+    def on_start(self) -> None:
+        """
+        Callback executed before the task starts.
+        Subclasses may override this method to perform any additional actions before the task begins.
+        Make sure to call the parent class method to ensure proper pre actions.
+        """
+        pass
+
+    def on_end(self) -> None:
+        """
+        Callback executed after the task ends normally or is terminated.
+        Subclasses may override this method to perform cleanup or other actions after task completion.
+        Make sure to call the parent class method to ensure proper cleanup.
+        """
+        pass
+
+
+class Task(AbstractTask, ABC):
     def __init__(self, task_name: Optional[str] = None, priority: int = 0):
         """
         Initialize an abstract backend task.
@@ -32,13 +80,12 @@ class AbstractTask(ABC):
             priority (int): The task's priority level. Higher values indicate higher priority.
                 Defaults to 0.
         """
-        self.name = task_name or "".join(
-            random.choices(string.ascii_letters + string.digits, k=5)
+        super().__init__(
+            task_name
+            if task_name is not None
+            else "".join(random.choices(string.ascii_letters + string.digits, k=5))
         )
-        if self.name == "backend":
-            raise ValueError("Task name cannot be 'backend'. It is reserved for catin.")
-        if not is_valid_filename(self.name):
-            raise ValueError(f"'{self.name}' is not a valid task name. It should be a valid dirname.")
+
         self.create_time = time.time_ns()
         self.priority = priority
 
@@ -125,28 +172,8 @@ class AbstractTask(ABC):
             ...
         return False
 
-    def on_task_start(self) -> None:
-        """
-        Callback executed immediately after the task starts.
-        Subclasses may override this method to perform any additional actions when the task begins.
-        Make sure to call the parent class method to ensure proper cleanup.
-        """
-        pass
 
-    def on_task_end(self) -> None:
-        """
-        Callback executed when the task ends normally or is terminated.
-        Subclasses may override this method to perform cleanup or other actions after task completion.
-        Make sure to call the parent class method to ensure proper cleanup.
-        """
-        pass
-
-    def __copy__(self):
-        new_task = type(self)(priority=self.priority)
-        return new_task
-
-
-class DeviceRequiredTask(AbstractTask):
+class DeviceRequiredTask(Task):
     def __init__(
         self,
         task_name: Optional[str] = None,
@@ -173,8 +200,15 @@ class DeviceRequiredTask(AbstractTask):
         self.requires_memory_per_device = requires_memory_per_device
         self.min_devices = min_devices
         self.visible_devices = (
-            visible_devices or self._allocator.get_all_device_indices()
+            visible_devices or DeviceAllocator.get_all_device_indices()
         )
+
+    @property
+    def assigned_device_indices(self) -> Optional[List[int]]:
+        """
+        Get the assigned device indices.
+        """
+        return self._assigned_device_indices
 
     def acquire_devices(self) -> bool:
         """
@@ -190,16 +224,9 @@ class DeviceRequiredTask(AbstractTask):
         """
         self._allocator.release(self)
 
-    def on_task_end(self):
-        super().on_task_end()
+    def on_end(self):
+        super().on_end()
         self.release_devices()
-
-    @property
-    def assigned_device_indices(self) -> Optional[List[int]]:
-        """
-        Get the assigned device indices.
-        """
-        return self._assigned_device_indices
 
     @property
     def visible_device_environ(self) -> dict:
@@ -214,90 +241,103 @@ class DeviceRequiredTask(AbstractTask):
             )
 
 
-class TaskGroup:
+class TaskGroup(AbstractTask):
     def __init__(
         self,
-        tasks: Union[List[AbstractTask], TaskGraph],
-        execute_strategy: str = "sequential",
+        tasks: List[AbstractTask],
+        execute_strategy: Union[
+            Literal["sequential", "parallel"], "TaskGraph"
+        ] = "parallel",
         group_name: Optional[str] = None,
     ):
         """
-        TaskGroup class to represent a group of tasks to be executed in the backend.
-        These tasks will be executed based on the execution strategy.
-        - 'sequential' will execute tasks one by one.
-        - 'parallel' will execute all tasks concurrently.
-        - 'dag' will execute tasks based on a given directed acyclic graph.
+        Initialize a task group.
 
         Args:
-            tasks (List[Task] or TaskGraph): The tasks to be executed
-            execute_strategy (str): The execution strategy. Defaults to "sequential".
-            group_name (str, optional): The name of the task group.
-                If not provided, it will be "group contains {name of the first task}".
+            tasks (List[AbstractTask], optional): The list of tasks and subgroups.
+            execute_strategy (Union[str, TaskGraph], optional): The execution strategy for the group,
+                either 'sequential', 'parallel', or a TaskGraph object.
+            group_name (str, optional): The name of the task group. If not provided,
+                it will be set to 'group_of_{name of a task in the group}'.
+
         """
-
-        if execute_strategy not in ["sequential", "parallel", "dag"]:
-            raise ValueError(
-                f"Invalid execution strategy: {execute_strategy}. Choose from 'sequential' or 'parallel'."
-            )
-
-        if (
-            isinstance(tasks, TaskGraph)
-            and execute_strategy != "dag"
-            or not isinstance(tasks, TaskGraph)
-            and execute_strategy == "dag"
-        ):
-            raise ValueError(
-                "The type of tasks and the execution strategy must match. If tasks is a DiGraph, the execution"
-                f"strategy must be 'dag', but {execute_strategy=} and {type(tasks)=}."
-            )
-
         if len(tasks) == 0:
             raise ValueError("The task group must contain at least one task.")
 
-        if len(set(t.name for t in tasks)) != len(tasks):
-            duplicate_task_names = [
-                item
-                for item, count in Counter(t.name for t in tasks).items()
-                if count > 1
-            ]
+        super().__init__(
+            group_name if group_name is not None else f"group_of_{tasks[0].name}"
+        )
+        self.subtasks = tasks
+        self._group: Optional["TaskGroup"] = None
+
+        for t in tasks:
+            t._group = self
+
+        all_task_name = []
+        for task in self.subtasks:
+            if issubclass(type(task), TaskGroup):
+                all_task_name.extend(t.fullname for t in task.all_tasks)
+            else:
+                all_task_name.append(task.fullname)
+
+        duplicate_task_names = [
+            item for item, count in Counter(all_task_name).items() if count > 1
+        ]
+        if duplicate_task_names:
             raise ValueError(
                 f"Task names must be unique, but got duplicate task names: {duplicate_task_names}"
             )
 
-        self.execute_strategy = execute_strategy
-        self.name = (
-            group_name
-            or f"group contains {tasks[0].name if isinstance(tasks, list) else tasks.tasks[0].name}"
-        )
-        if not isinstance(tasks, TaskGraph):
-            tasks_graph = TaskGraph()
-            tasks_graph.add_tasks_from(tasks)
+        if isinstance(execute_strategy, str):
+            from catin.tasks.task_graph import TaskGraph
+
+            task_graph = TaskGraph()
+            task_graph.add_tasks_from(tasks)
             if execute_strategy == "sequential":
-                tasks_graph.add_edges_from(
+                task_graph.add_edges_from(
                     [(tasks[i], tasks[i + 1]) for i in range(len(tasks) - 1)]
                 )
         else:
-            tasks_graph = tasks
+            if execute_strategy.has_cycle():
+                raise ValueError(
+                    "The execute_strategy has a cycle, which will lead to deadlock."
+                )
+            strategy_tasks = set(execute_strategy.tasks)
+            all_tasks = set(
+                itertools.chain(
+                    *[[t] if isinstance(t, Task) else t.all_tasks for t in tasks]
+                )
+            )
+            if not strategy_tasks.issubset(all_tasks):
+                raise ValueError(
+                    f"{', '.join([t.name for t in strategy_tasks - all_tasks])} from execute_strategy "
+                    "are not in the task group."
+                )
 
-        self.graph: TaskGraph = tasks_graph
+            # add remaining tasks that are not in execute_strategy
+            execute_strategy.add_tasks_from(all_tasks - strategy_tasks)
+            task_graph = execute_strategy
 
-    def on_task_group_start(self) -> None:
-        """
-        A callback function called when the task group starts.
-        """
-
-    def on_task_group_end(self) -> None:
-        """
-        A callback function called when the task group ends.
-        It will be called only if all tasks end normally.
-        """
+        self.graph = task_graph
 
     @property
-    def tasks(self):
+    def all_tasks(self) -> List[Task]:
+        """
+        Get all tasks in the task group.
+        """
         return self.graph.tasks
 
     def __iter__(self):
-        return iter(self.graph)
+        return iter(self.subtasks)
 
     def __len__(self):
-        return len(self.graph)
+        return len(self.subtasks)
+
+    def get_task_by_name(self, name: str) -> Optional[Union[Task, "TaskGroup"]]:
+        """
+        Get a task or task group by its name.
+        """
+        for task in self.subtasks:
+            if task.name == name:
+                return task
+        return self.graph.get_task_by_name(name)

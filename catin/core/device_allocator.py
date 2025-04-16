@@ -96,8 +96,9 @@ class DeviceAllocator:
         if task in DeviceAllocator._running_tasks:
             DeviceAllocator._running_tasks.remove(task)
 
+    @classmethod
     def get_device_control_env_var(
-        self, assigned_device_indices: List[int]
+        cls, assigned_device_indices: List[int]
     ) -> Dict[str, str]:
         """
         Get environment variables for device visibility.
@@ -110,7 +111,8 @@ class DeviceAllocator:
         """
         return current_platform.get_device_control_env_var(assigned_device_indices)
 
-    def get_all_device_indices(self) -> List[int]:
+    @classmethod
+    def get_all_device_indices(cls) -> List[int]:
         """
         Get all device indices. This will not affected by the device visibility.
         """

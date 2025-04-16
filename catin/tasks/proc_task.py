@@ -18,7 +18,7 @@ class ProcTask(DeviceRequiredTask):
         cmd: str,
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
-        priority: int = 0,
+        priority: int = 1,
         visible_devices: Optional[List[int]] = None,
         requires_memory_per_device: int = 0,
         min_devices: int = 1,
@@ -27,7 +27,7 @@ class ProcTask(DeviceRequiredTask):
         Initialize a ProcTask with a shell command.
 
         Args:
-            cmd (str): A string representing the command to execute.
+            cmd (str): A magic string representing the command to execute.
             env (Optional[Dict[str, Any]], optional): Environment variables for the task.
             task_name (Optional[str], optional): Name of the task.
             priority (int, optional): Task priority.
@@ -43,7 +43,7 @@ class ProcTask(DeviceRequiredTask):
         func: Callable[[], None],
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
-        priority: int = 0,
+        priority: int = 1,
         visible_devices: Optional[List[int]] = None,
         requires_memory_per_device: int = 0,
         min_devices: int = 1,
@@ -67,7 +67,7 @@ class ProcTask(DeviceRequiredTask):
         cmd_or_func: Union[str, Callable],
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
-        priority: int = 0,
+        priority: int = 1,
         visible_devices: Optional[List[int]] = None,
         requires_memory_per_device: int = 0,
         min_devices: int = 1,
@@ -158,11 +158,16 @@ class ProcTask(DeviceRequiredTask):
             **self.visible_device_environ,
         }
 
-        cache_dir = get_cache_dir(self.name)
-        self._stdout = open_redirected_stream(cache_dir, "stdout")
-        self._stderr = open_redirected_stream(cache_dir, "stderr")
+        self.cache_dir = get_cache_dir(self)
+        self._stdout = open_redirected_stream(self.cache_dir, "stdout")
+        self._stderr = open_redirected_stream(self.cache_dir, "stderr")
         if is_cmd_task:
-            self.cmd = Magics.resolve(self.cmd, task_name=self.name)
+            self.cmd = Magics.resolve(
+                self.cmd,
+                task_name=self.name,
+                run_dir=get_cache_dir(""),
+                fullname=self.fullname,
+            )
             self._proc = subprocess.Popen(
                 shlex.split(self.cmd),
                 stdout=self._stdout,
@@ -199,9 +204,9 @@ class ProcTask(DeviceRequiredTask):
         """
         if self.status in [TaskStatus.Done, TaskStatus.Failed]:
             return
+        self._is_pending = True
         if self.status == TaskStatus.Running:
-            self._is_pending = True
-            self.terminate(force=True) 
+            self.terminate(force=True)
             self._proc = None
 
     def resume(self) -> None:
@@ -217,33 +222,10 @@ class ProcTask(DeviceRequiredTask):
         if self.status == TaskStatus.Running:
             self._proc.kill() if force else self._proc.terminate()  # type: ignore
 
-    def on_task_end(self) -> None:
+    def on_end(self) -> None:
         """
         Callback executed when the task ends.
         """
-        super().on_task_end()
+        super().on_end()
         self._stdout.close()
         self._stderr.close()
-
-    def __copy__(self):
-        if hasattr(self, "cmd"):
-            new_task = type(self)(  # type: ignore
-                cmd_or_func=self.cmd,
-                env=self.env,
-                task_name=None,  # auto generate another name
-                priority=self.priority,
-                visible_devices=self.visible_devices,
-                requires_memory_per_device=self.requires_memory_per_device,
-                min_devices=self.min_devices,
-            )
-        else:
-            new_task = type(self)(  # type: ignore
-                cmd_or_func=self._target_fn,
-                env=self.env,
-                task_name=None,  # auto generate another name
-                priority=self.priority,
-                visible_devices=self.visible_devices,
-                requires_memory_per_device=self.requires_memory_per_device,
-                min_devices=self.min_devices,
-            )
-        return new_task

@@ -1,17 +1,21 @@
 import logging
 import os
+import tempfile
 import time
+from types import ModuleType
+import uuid
 import dill
 import sys
 import subprocess
 from pydantic import BaseModel, ConfigDict
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 import requests  # type: ignore[import]
 from fastapi import status
 
 from catin import settings
 from catin.constants import CATIN_HOST, CATIN_PORT
-from catin.tasks.interface import AbstractTask, TaskGroup
+from catin.tasks.interface import AbstractTask, Task, TaskGroup
+from catin.utils import get_cache_dir
 
 
 class Message(BaseModel):
@@ -39,6 +43,7 @@ def send_request(
     expected_response_cls: type,
     request: Optional["Request"] = None,
     api: str = "post",
+    headers: Dict[str, str] = None,
     timeout: Optional[int] = None,
 ):
     """
@@ -56,6 +61,7 @@ def send_request(
                 if request
                 else None
             ),
+            headers=headers,
             timeout=timeout,
         )
         response_json: dict = response.json()
@@ -85,10 +91,22 @@ def send_request(
 
 class Request(Message):
     @staticmethod
-    def create(tasks: Sequence[Union[AbstractTask, TaskGroup]], timeout: int = 5):
+    def create(
+        tasks: Sequence[AbstractTask],
+        extra_paths: Optional[Sequence[str]] = None,
+        timeout: int = 5,
+    ):
         """Create a message for creating tasks."""
+        if extra_paths:
+            headers = {"X-Extra-Path": ",".join(extra_paths)}
+        else:
+            headers = None
         return send_request(
-            "create", TaskResponse, Request(tasks=tasks), timeout=timeout
+            "create",
+            TaskResponse,
+            Request(tasks=tasks),
+            headers=headers,
+            timeout=timeout,
         )
 
     @staticmethod
@@ -268,6 +286,24 @@ def test_running(name: Optional[str] = None) -> bool:
         return False
 
 
+def where() -> Optional[str]:
+    """
+    Get cache dirname of current running backend. If the backend is not runnning,
+    return None.
+    """
+    if os.path.isdir(get_cache_dir("backend")):
+        # if where is called in backend, it may lead error
+        return get_cache_dir("")
+
+    response = Request.test()
+    if response.error():
+        raise RuntimeError(
+            f"Failed to query cache dirname of current backend: {response.detail}"
+        )
+
+    return get_cache_dir("", response.pid) if getattr(response, "pid", None) else None
+
+
 def start_backend(
     blocking: bool = False, host: Optional[str] = None, port: Optional[int] = None
 ):
@@ -288,3 +324,5 @@ def start_backend(
 
         if blocking:
             proc.wait()
+        else:
+            time.sleep(3)

@@ -1,3 +1,4 @@
+import ast
 import os
 import re
 import dill
@@ -6,12 +7,13 @@ from functools import cached_property
 from typing import Any, Callable, Dict, List, Literal, Mapping, Sequence
 from pydantic import BaseModel, Field, PrivateAttr
 
-from catin.constants import CATIN_HOST, CATIN_PORT
-from catin.utils import get_catin_home
+from cattino.constants import CATTINO_HOST, CATTINO_PORT
+from cattino.platforms import current_platform
+from cattino.utils import get_cattino_home
 
 
 class SettingsBinary(Dict[str, Any]):
-    __internal_set: bool = False
+    _internal_set: bool = False
 
     def __init__(self, bin_path: str):
         self.path = bin_path
@@ -19,19 +21,19 @@ class SettingsBinary(Dict[str, Any]):
     def load(self):
         if os.path.isfile(self.path):
             with open(self.path, "rb") as f:
-                self.__internal_set = True
+                self._internal_set = True
                 self.update(dill.load(f))
-                self.__internal_set = False
+                self._internal_set = False
 
     def save(self):
         with open(self.path, "wb") as f:
             dill.dump(dict(self), f)
 
     def __setitem__(self, key: str, value: Any):
-        if not self.__internal_set:
+        if not self._internal_set:
             self.load()
         super().__setitem__(key, value)
-        if not self.__internal_set:
+        if not self._internal_set:
             self.save()
 
     def __getitem__(self, key: str) -> Any:
@@ -46,7 +48,7 @@ class SettingsBinary(Dict[str, Any]):
 
 class Settings(BaseModel):
     """
-    Global settings for catin. To add new settings, add them as a new field in this class.
+    Global settings for cattino. To add new settings, add them as a new field in this class.
 
     Once a setting is added, it can be set with `meow set <setting> <value>`. All underlines in names
     are replaced with dashes. For example, `override_exist_tasks` becomes `override-exist-tasks`.
@@ -58,13 +60,14 @@ class Settings(BaseModel):
     The `settings.bin` is stored as a `dict[str, Any]`."
     """
 
-    override_exist_tasks: Literal["allow", "forbid", "rename"] = Field(
+    override_exist_tasks: Literal["allow", "forbid", "rename", "skip"] = Field(
         "forbid",
         description=(
             "Defines how to handle existing tasks when adding new ones. "
             "'allow' will directly override existing tasks, "
             "'forbid' will raise an exception if the task exists, "
             "'rename' will add a suffix with an incremental number to the new task. "
+            "'skip' will not execute new tasks if there are existing tasks with the same fullname. "
             "Defaults to 'forbid'."
         ),
     )
@@ -75,13 +78,31 @@ class Settings(BaseModel):
     debugging: bool = Field(
         False, description="Whether to enable debugging mode. Defaults to False."
     )
-    port: int = Field(CATIN_PORT, description="The port to use for the catin server.")
-    host: str = Field(CATIN_HOST, description="The host to use for the catin server.")
+    shutdown_on_complete: bool = Field(
+        True,
+        description=(
+            "Whether to shutdown the server when all tasks are complete. Defaults to True."
+        ),
+    )
+    visible_devices: List[int] = Field(
+        current_platform.get_all_deivce_indeces(),
+        description=(
+            "The list of visible devices. If set to None, all devices will be visible. "
+            "Defaults to all devices."
+        ),
+    )
+
+    port: int = Field(
+        CATTINO_PORT,
+        description=f"The port to use for the cattino server. Defaults to {CATTINO_PORT}.",
+    )
+    host: str = Field(
+        CATTINO_HOST,
+        description=f"The host to use for the cattino server. Defaults to {CATTINO_HOST}.",
+    )
 
     magic_constants: Dict[str, str] = Field(
-        {
-            "fullpath": "${eval:'${fullname}'.replace('/', '%s')}"
-        },
+        {"fullpath": "${eval:'${fullname}'.replace('/', '%s')}" % os.sep},
         description="Pre-defined constants to use in magic string.",
     )
     magic_vars: List[str] = Field(
@@ -93,10 +114,30 @@ class Settings(BaseModel):
         description="Resolvers to use in magic string.",
     )
 
-    # this variable is used to prevent calling custom setter recursively
-    __internal_set: bool = PrivateAttr(default=False)
-    # this variable is used to store the binary settings
-    __bin: SettingsBinary = PrivateAttr(default=None)
+    timeout: int = Field(
+        5,
+        gt=-1,
+        description=(
+            "Timeout in seconds for each command. If set to 0, all commands will wait indefinitely."
+        ),
+    )
+
+    # prevent calling custom setter recursively
+    _internal_set: bool = PrivateAttr(default=False)
+    # store the binary settings
+    _bin: SettingsBinary = PrivateAttr(default=None)
+    # extra getter
+    _getter: Dict[str, Callable] = PrivateAttr(default={})
+    # extra setter. to add a setter for attr, add a new entry to this dict.
+    # the setter should return the value to be set, and no set operation
+    # should be performed in the setter.
+    _setter: Dict[str, Callable] = PrivateAttr(
+        default={
+            "visible_devices": lambda self, x: (
+                ast.literal_eval(x) if isinstance(x, str) else x
+            ),
+        }
+    )
 
     class Config:
         validate_assignment = True
@@ -109,8 +150,8 @@ class Settings(BaseModel):
         if os.path.isfile(self.path):
             with open(self.path, "r") as f:
                 config = toml.load(f)
-            self.__internal_set = True
-            for k, v in config.get("tool", {}).get("catin", {}).items():
+            self._internal_set = True
+            for k, v in config.get("tool", {}).get("cattino", {}).items():
                 if isinstance(v, str):
                     m = re.match(r"^\$\{bin\.(.+)\}$", v)
                     if m:
@@ -118,7 +159,7 @@ class Settings(BaseModel):
                         k = m.group(1)
                         v = self.bin[k]
                 setattr(self, k, v)
-            self.__internal_set = False
+            self._internal_set = False
 
     def save(self):
         # only save those that are different from the default settings
@@ -147,13 +188,13 @@ class Settings(BaseModel):
             with open(self.path, "r") as f:
                 config = toml.load(f)
             config.setdefault("tool", {})
-            config["tool"].setdefault("catin", {})
-            config["tool"]["catin"] = new_settings
+            config["tool"].setdefault("cattino", {})
+            config["tool"]["cattino"] = new_settings
         else:
             # do not create a new file if there are no new settings
             if not new_settings:
                 return
-            config = {"tool": {"catin": new_settings}}
+            config = {"tool": {"cattino": new_settings}}
 
         with open(self.path, "w") as f:
             toml.dump(config, f)
@@ -176,7 +217,7 @@ class Settings(BaseModel):
     def path(self) -> str:
         search_path = [
             os.path.join(os.getcwd(), "pyproject.toml"),
-            os.path.join(get_catin_home(), "settings.toml"),
+            os.path.join(get_cattino_home(), "settings.toml"),
         ]
         for path in search_path:
             if os.path.isfile(path):
@@ -186,8 +227,8 @@ class Settings(BaseModel):
     @property
     def bin(self) -> Dict[str, Any]:
         """Get the binary dictionary."""
-        self.__bin = SettingsBinary(os.path.join(get_catin_home(), "settings.bin"))
-        return self.__bin
+        self._bin = SettingsBinary(os.path.join(get_cattino_home(), "settings.bin"))
+        return self._bin
 
     def get_description(self, name: str) -> str:
         """Get the docstring of a setting."""
@@ -203,11 +244,15 @@ class Settings(BaseModel):
         return super().__getattribute__(name)
 
     def __setattr__(self, name, value):
-        if not self.__internal_set and name in Settings.model_fields:
+        if not self._internal_set and name in Settings.model_fields:
             self.load()
-            super().__setattr__(name, value)
+
+        if name in self._setter:
+            value = self._setter[name](self, value)
+        super().__setattr__(name, value)
+
+        if not self._internal_set and name in Settings.model_fields:
             self.save()
-        return super().__setattr__(name, value)
 
 
 settings = Settings()

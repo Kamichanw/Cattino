@@ -12,7 +12,7 @@ import torch
 from typing_extensions import ParamSpec
 
 from .interface import Platform, PlatformEnum
-from catin.utils import import_pynvml
+from cattino.utils import import_pynvml
 
 pynvml = import_pynvml()
 

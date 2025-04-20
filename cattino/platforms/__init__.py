@@ -3,7 +3,7 @@
 import traceback
 from typing import TYPE_CHECKING, Optional
 
-from catin.utils import resolve_obj_by_qualname
+from cattino.utils import resolve_obj_by_qualname
 
 from .interface import Platform, PlatformEnum
 
@@ -21,13 +21,13 @@ def tpu_platform_plugin() -> Optional[str]:
     except Exception as e:
         pass
 
-    return "catin.platforms.tpu.TpuPlatform" if is_tpu else None
+    return "cattino.platforms.tpu.TpuPlatform" if is_tpu else None
 
 
 def cuda_platform_plugin() -> Optional[str]:
     is_cuda = False
     try:
-        from catin.utils import import_pynvml
+        from cattino.utils import import_pynvml
 
         pynvml = import_pynvml()
         pynvml.nvmlInit()
@@ -48,9 +48,9 @@ def cuda_platform_plugin() -> Optional[str]:
             )
 
         if cuda_is_jetson():
-            raise RuntimeError("catin doesn't support jetson platform.")
+            raise RuntimeError("cattino doesn't support jetson platform.")
 
-    return "catin.platforms.cuda.CudaPlatform" if is_cuda else None
+    return "cattino.platforms.cuda.CudaPlatform" if is_cuda else None
 
 
 def rocm_platform_plugin() -> Optional[str]:
@@ -67,7 +67,7 @@ def rocm_platform_plugin() -> Optional[str]:
     except Exception as e:
         pass
 
-    return "catin.platforms.rocm.RocmPlatform" if is_rocm else None
+    return "cattino.platforms.rocm.RocmPlatform" if is_rocm else None
 
 
 def hpu_platform_plugin() -> Optional[str]:
@@ -80,7 +80,7 @@ def hpu_platform_plugin() -> Optional[str]:
     except Exception as e:
         pass
 
-    return "catin.platforms.hpu.HpuPlatform" if is_hpu else None
+    return "cattino.platforms.hpu.HpuPlatform" if is_hpu else None
 
 
 def xpu_platform_plugin() -> Optional[str]:
@@ -96,11 +96,11 @@ def xpu_platform_plugin() -> Optional[str]:
     except Exception as e:
         pass
 
-    return "catin.platforms.xpu.XPUPlatform" if is_xpu else None
+    return "cattino.platforms.xpu.XPUPlatform" if is_xpu else None
 
 
 def cpu_platform_plugin() -> Optional[str]:
-    return "catin.platforms.cpu.CpuPlatform"
+    return "cattino.platforms.cpu.CpuPlatform"
 
 
 def neuron_platform_plugin() -> Optional[str]:
@@ -112,7 +112,7 @@ def neuron_platform_plugin() -> Optional[str]:
     except ImportError as e:
         pass
 
-    return "catin.platforms.neuron.NeuronPlatform" if is_neuron else None
+    return "cattino.platforms.neuron.NeuronPlatform" if is_neuron else None
 
 
 def ascend_platform_plugin() -> Optional[str]:
@@ -124,7 +124,7 @@ def ascend_platform_plugin() -> Optional[str]:
     except:
         pass
 
-    return "catin.platforms.ascend.AscendPlatform" if is_ascend else None
+    return "cattino.platforms.ascend.AscendPlatform" if is_ascend else None
 
 
 builtin_platform_plugins = {
@@ -156,10 +156,10 @@ def resolve_current_platform_cls_qualname() -> str:
             )
 
     if len(activated_plugins) == 1:
-        platform_cls_qualname = builtin_platform_plugins[activated_plugins[0]]() 
+        platform_cls_qualname = builtin_platform_plugins[activated_plugins[0]]()
     else:
-        platform_cls_qualname = "catin.platforms.interface.UnspecifiedPlatform"
-    return platform_cls_qualname # type: ignore
+        raise RuntimeError("No available platform is found.")
+    return platform_cls_qualname  # type: ignore
 
 
 _current_platform: Optional[Platform] = None
@@ -172,12 +172,12 @@ if TYPE_CHECKING:
 def __getattr__(name: str):
     if name == "current_platform":
         # lazy init current_platform.
-        # 1. out-of-tree platform plugins need `from catin.platforms import
+        # 1. out-of-tree platform plugins need `from cattino.platforms import
         #    Platform` so that they can inherit `Platform` class. Therefore,
         #    we cannot resolve `current_platform` during the import of
-        #    `catin.platforms`.
+        #    `cattino.platforms`.
         # 2. when users use out-of-tree platform plugins, they might run
-        #    `import catin`, some catin internal code might access
+        #    `import cattino`, some cattino internal code might access
         #    `current_platform` during the import, and we need to make sure
         #    `current_platform` is only resolved after the plugins are loaded
         #    (we have tests for this, if any developer violate this, they will

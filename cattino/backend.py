@@ -1,5 +1,7 @@
 import asyncio
+import atexit
 import logging
+import re
 import click
 import dill
 import os
@@ -8,16 +10,16 @@ import sys
 import fastapi
 import uvicorn
 from contextlib import asynccontextmanager
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 from collections.abc import Sequence
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from loguru import logger
 
-from catin.comms import Request, Response, TaskResponse
-from catin.core.task_scheduler import TaskScheduler
-from catin.tasks.interface import Task, TaskGroup, TaskStatus
-from catin.settings import settings
-from catin.utils import get_cache_dir, has_param_type, open_redirected_stream
+from cattino.comms import Request, Response, TaskResponse
+from cattino.core.task_scheduler import TaskScheduler
+from cattino.tasks.interface import Task, TaskGroup, TaskStatus
+from cattino.settings import settings
+from cattino.utils import get_cache_dir, has_param_type, open_redirected_stream
 
 
 class InterceptHandler(logging.Handler):
@@ -85,19 +87,27 @@ async def lifespan(app: FastAPI):
     async def main_loop():
         while not shutdown_event.is_set():
             try:
-                await task_scheduler.step()
-                await asyncio.sleep(5)
+                if not await task_scheduler.step():
+                    if (
+                        settings.shutdown_on_complete
+                        and app.state.redirect_output # if backend is running in background
+                        and len(await task_scheduler.pending_tasks) == 0
+                    ):
+                        logger.info("All tasks are done, shutting down...")
+                        shutdown_event.set()
+                    else:
+                        await asyncio.sleep(5)
             except Exception as e:
                 logger.exception("Error during task scheduling loop: %s", e)
+                await asyncio.sleep(5)
 
     task_loop = asyncio.create_task(main_loop())
 
     yield
 
     shutdown_event.set()
-    await task_scheduler.remove(await task_scheduler.all_tasks)
     await task_loop
-
+    await task_scheduler.remove(await task_scheduler.all_tasks)
     if app.state.redirect_output:
         sys.stdout.flush()
         sys.stderr.flush()
@@ -112,7 +122,8 @@ async def process_tasks(
     task_names: Sequence[str],
     func: Callable,
     allow_status: Optional[Sequence[TaskStatus]] = None,
-    **kwargs,
+    use_regex: bool = False,
+    **func_kwargs,
 ):
     scheduler: TaskScheduler = app.state.task_scheduler
 
@@ -130,8 +141,13 @@ async def process_tasks(
     success, no_op, failure, not_found, exception = [], [], [], [], []
     allow_status = allow_status or list(TaskStatus)
 
+    MATCH_TASK = re.compile(
+        "|".join(task_names if use_regex else map(re.escape, task_names))
+    )
+
     for name in task_names:
-        task = await scheduler.get_task(name)
+        task = await scheduler.get_task(MATCH_TASK)
+
         if task is None:
             not_found.append(name)
         elif task.status in allow_status:
@@ -139,7 +155,7 @@ async def process_tasks(
                 selected_tasks.append(task)
             else:
                 try:
-                    await func(task, **kwargs)
+                    await func(task, **func_kwargs)
                     success.append(name)
                 except Exception as e:
                     logger.exception(e)
@@ -152,7 +168,7 @@ async def process_tasks(
         # run in batch, if any task failed, we will mark all tasks as failure
         selected_task_names = [task.name for task in selected_tasks]
         try:
-            await func(selected_tasks, **kwargs)
+            await func(selected_tasks, **func_kwargs)
             success.extend(selected_task_names)
         except Exception as e:
             logger.exception(e)
@@ -181,7 +197,7 @@ def load_from_message(message: UploadFile = File(...), request: fastapi.Request 
     # add extra paths to load user-defined modules
     extra_modules = request.headers.get("X-Extra-Path", None)
     if extra_modules:
-        sys.path = list(set(extra_modules.split(",") + sys.path))
+        sys.path = extra_modules.split(",") + sys.path
     try:
         request = dill.loads(msg)
     except Exception as e:
@@ -201,36 +217,56 @@ async def kill(request: Request = Depends(load_from_message)):
         task.name for task in await scheduler.running_tasks
     ]
     return await process_tasks(
-        task_names, scheduler.terminate, [TaskStatus.Running], force=request.force
+        task_names,
+        scheduler.terminate,
+        [TaskStatus.Running],
+        use_regex=request.use_regex,
+        force=request.force,
     )
 
 
 @app.post("/remove", response_model=TaskResponse)
 async def remove(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    task_names = request.task_names or [task.name for task in await scheduler.all_tasks]
-    return await process_tasks(task_names, scheduler.remove)
+    task_names = (
+        await scheduler.all_task_fullnames
+        if request.task_names is None and request.use_regex
+        else request.task_names
+    )
+    return await process_tasks(
+        task_names, scheduler.remove, use_regex=request.use_regex
+    )
 
 
 @app.post("/suspend", response_model=TaskResponse)
 async def suspend(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    task_names = request.task_names or [task.name for task in await scheduler.all_tasks]
+    task_names = (
+        await scheduler.all_task_fullnames
+        if request.task_names is None and request.use_regex
+        else request.task_names
+    )
     return await process_tasks(
         task_names,
         scheduler.suspend,
         [TaskStatus.Running, TaskStatus.Waiting],
+        use_regex=request.use_regex,
     )
 
 
 @app.post("/resume", response_model=TaskResponse)
 async def resume(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    task_names = request.task_names or [task.name for task in await scheduler.all_tasks]
+    task_names = (
+        await scheduler.all_task_fullnames
+        if request.task_names is None and request.use_regex
+        else request.task_names
+    )
     return await process_tasks(
         task_names,
         scheduler.resume,
         [TaskStatus.Suspended],
+        use_regex=request.use_regex,
     )
 
 
@@ -270,8 +306,6 @@ async def test(request: Request = Depends(load_from_message)):
 
 @app.post("/exit", response_model=Response)
 async def exit():
-    scheduler: TaskScheduler = app.state.task_scheduler
-    await scheduler.remove(await scheduler.all_tasks)
     os.kill(os.getpid(), signal.SIGINT)
     return Response(status_code=status.HTTP_200_OK)
 

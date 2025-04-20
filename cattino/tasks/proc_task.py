@@ -4,10 +4,11 @@ import inspect
 import subprocess
 import multiprocessing
 import psutil
-from typing import Any, Callable, Dict, List, Optional, Union, overload
+from typing import Any, Callable, Dict, Optional, Union, overload
 
-from catin.tasks.interface import TaskStatus, DeviceRequiredTask
-from catin.utils import Magics, get_cache_dir, open_redirected_stream
+from cattino.constants import CATTINO_RETRY_EXIT_CODE
+from cattino.tasks.interface import TaskStatus, DeviceRequiredTask
+from cattino.utils import Magics, get_cache_dir, open_redirected_stream
 
 
 class ProcTask(DeviceRequiredTask):
@@ -19,7 +20,6 @@ class ProcTask(DeviceRequiredTask):
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
         priority: int = 1,
-        visible_devices: Optional[List[int]] = None,
         requires_memory_per_device: int = 0,
         min_devices: int = 1,
     ) -> None:
@@ -31,7 +31,6 @@ class ProcTask(DeviceRequiredTask):
             env (Optional[Dict[str, Any]], optional): Environment variables for the task.
             task_name (Optional[str], optional): Name of the task.
             priority (int, optional): Task priority.
-            visible_devices (Optional[List[int]], optional): List of visible device indices.
             requires_memory_per_device (int, optional): Memory required per device in MiB.
             min_devices (int, optional): Minimum number of devices required.
         """
@@ -44,7 +43,6 @@ class ProcTask(DeviceRequiredTask):
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
         priority: int = 1,
-        visible_devices: Optional[List[int]] = None,
         requires_memory_per_device: int = 0,
         min_devices: int = 1,
     ) -> None:
@@ -56,7 +54,6 @@ class ProcTask(DeviceRequiredTask):
             env (Optional[Dict[str, Any]], optional): Environment variables for the task.
             task_name (Optional[str], optional): Name of the task.
             priority (int, optional): Task priority.
-            visible_devices (Optional[List[int]], optional): List of visible device indices.
             requires_memory_per_device (int, optional): Memory required per device in MiB.
             min_devices (int, optional): Minimum number of devices required.
         """
@@ -68,19 +65,18 @@ class ProcTask(DeviceRequiredTask):
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
         priority: int = 1,
-        visible_devices: Optional[List[int]] = None,
         requires_memory_per_device: int = 0,
         min_devices: int = 1,
     ) -> None:
         super().__init__(
             task_name=task_name,
             priority=priority,
-            visible_devices=visible_devices,
             requires_memory_per_device=requires_memory_per_device,
             min_devices=min_devices,
         )
         self._proc: Optional[Union[subprocess.Popen, multiprocessing.Process]] = None
         self._is_pending = False
+        self._is_cancelled = False
 
         if callable(cmd_or_func):
             self._target_fn = cmd_or_func
@@ -106,19 +102,21 @@ class ProcTask(DeviceRequiredTask):
             return None
         return self._proc.pid
 
-    @property
-    def user(self) -> str:
-        """Get the user of the task."""
-        return psutil.Process(self.pid).username()
+    def cancel(self):
+        if self.status in [
+            TaskStatus.Done,
+            TaskStatus.Failed,
+            TaskStatus.Suspended,
+            TaskStatus.Waiting,
+        ]:
+            return
+        self._is_cancelled = True
 
     @property
     def status(self) -> TaskStatus:
-        """
-        Get the current status of the task.
 
-        Returns:
-            TaskStatus: Pending if not started; Running if in progress; Done/Failed based on process exit code.
-        """
+        if self._is_cancelled:
+            return TaskStatus.Cancelled
         if self._is_pending:
             return TaskStatus.Suspended
         if self._proc is None:
@@ -126,11 +124,12 @@ class ProcTask(DeviceRequiredTask):
         if isinstance(self._proc, subprocess.Popen):
             if self._proc.poll() is None:
                 return TaskStatus.Running
-            return TaskStatus.Done if self._proc.returncode == 0 else TaskStatus.Failed
+            exitcode = self._proc.returncode
         else:
             if self._proc.exitcode is None:
                 return TaskStatus.Running
-            return TaskStatus.Done if self._proc.exitcode == 0 else TaskStatus.Failed
+            exitcode = self._proc.exitcode
+        return TaskStatus.Done if exitcode == 0 else TaskStatus.Failed
 
     @property
     def is_ready(self) -> bool:
@@ -145,9 +144,6 @@ class ProcTask(DeviceRequiredTask):
         return False
 
     def start(self) -> None:
-        """
-        Start executing the task.
-        """
         if not self.is_ready:
             raise RuntimeError(f"{self.name} is not ready to be executed.")
 
@@ -157,10 +153,10 @@ class ProcTask(DeviceRequiredTask):
             **task_env,
             **self.visible_device_environ,
         }
-
-        self.cache_dir = get_cache_dir(self)
-        self._stdout = open_redirected_stream(self.cache_dir, "stdout")
-        self._stderr = open_redirected_stream(self.cache_dir, "stderr")
+        self._is_pending = False
+        cache_dir = get_cache_dir(self)
+        self._stdout = open_redirected_stream(cache_dir, "stdout")
+        self._stderr = open_redirected_stream(cache_dir, "stderr")
         if is_cmd_task:
             self.cmd = Magics.resolve(
                 self.cmd,
@@ -186,46 +182,45 @@ class ProcTask(DeviceRequiredTask):
 
             self._proc = multiprocessing.Process(target=target_wrapper, name=self.name)
             self._proc.start()
-        self._is_pending = False
 
     def wait(self, timeout: Optional[float] = None) -> None:
-        """
-        Block until the task finishes execution.
-        """
         if self.status == TaskStatus.Running:
             if isinstance(self._proc, subprocess.Popen):
                 self._proc.wait(timeout)
+                exitcode = self._proc.returncode
             elif isinstance(self._proc, multiprocessing.Process):
                 self._proc.join(timeout)
+                exitcode = self._proc.exitcode
+
+            if exitcode == CATTINO_RETRY_EXIT_CODE:
+                self.resume()
+                # the status of the process has been changed
+                # to waiting, the on_end will not be called, so we
+                # need to call it manually
+                self.on_end()
 
     def suspend(self) -> None:
-        """
-        Terminate the task and reset its process to pending.
-        """
-        if self.status in [TaskStatus.Done, TaskStatus.Failed]:
+        if self.status in [TaskStatus.Done, TaskStatus.Failed, TaskStatus.Suspended]:
             return
+        # the status will be Failed after calling terminate with force=True
+        # we need to set _is_pending to True here to avoid calling on_end
         self._is_pending = True
         if self.status == TaskStatus.Running:
             self.terminate(force=True)
-            self._proc = None
+            self.resume()
+            # in resume, _is_pending is set to False
+            self._is_pending = True
 
     def resume(self) -> None:
-        """
-        Resume a pending task.
-        """
-        self._is_pending = False
+        if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:
+            self._is_pending = False
+            self._proc = None
 
     def terminate(self, force: bool = False) -> None:
-        """
-        Terminate the running task.
-        """
         if self.status == TaskStatus.Running:
-            self._proc.kill() if force else self._proc.terminate()  # type: ignore
+            self._proc.kill() if force else self._proc.terminate()
 
     def on_end(self) -> None:
-        """
-        Callback executed when the task ends.
-        """
         super().on_end()
         self._stdout.close()
         self._stderr.close()

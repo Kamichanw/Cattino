@@ -175,5 +175,5 @@ cython_debug/
 
 # custom
 dev/
-catin-dev/
+cattino-dev/
 .vscode/

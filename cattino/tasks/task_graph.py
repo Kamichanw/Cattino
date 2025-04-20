@@ -1,7 +1,7 @@
 import copy
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Union
-from catin.core.digraph import DiGraph
-from catin.tasks.interface import AbstractTask, Task, TaskGroup
+from cattino.core.digraph import DiGraph
+from cattino.tasks.interface import AbstractTask, Task, TaskGroup
 
 
 class TaskGraph:
@@ -23,9 +23,6 @@ class TaskGraph:
     @property
     def in_degree(self):
         return self._graph.in_degree
-
-    def get_task_by_name(self, task_name: str) -> Optional[Task]:
-        return self._task_map.get(task_name, None)
 
     def add_task(self, task: AbstractTask):
         """Add a task or task group to the task graph."""

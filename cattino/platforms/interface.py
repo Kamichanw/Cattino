@@ -1,4 +1,4 @@
-# Modified from vLLM's codebase to catin's codebase.
+# Modified from vLLM's codebase to cattino's codebase.
 import enum
 from typing import Dict, List, Optional, Union
 

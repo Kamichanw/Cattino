@@ -1,21 +1,16 @@
-import logging
 import os
-import tempfile
 import time
-from types import ModuleType
-import uuid
 import dill
 import sys
 import subprocess
 from pydantic import BaseModel, ConfigDict
-from typing import Any, Dict, Optional, Sequence, Union
-import requests  # type: ignore[import]
+from typing import Dict, Optional, Sequence
+import requests
 from fastapi import status
 
-from catin import settings
-from catin.constants import CATIN_HOST, CATIN_PORT
-from catin.tasks.interface import AbstractTask, Task, TaskGroup
-from catin.utils import get_cache_dir
+from cattino import settings
+from cattino.tasks.interface import AbstractTask
+from cattino.utils import get_cache_dir
 
 
 class Message(BaseModel):
@@ -44,7 +39,6 @@ def send_request(
     request: Optional["Request"] = None,
     api: str = "post",
     headers: Dict[str, str] = None,
-    timeout: Optional[int] = None,
 ):
     """
     Post a request to the backend.
@@ -62,7 +56,7 @@ def send_request(
                 else None
             ),
             headers=headers,
-            timeout=timeout,
+            timeout=settings.timeout if settings.timeout > 0 else None,
         )
         response_json: dict = response.json()
         response_json.setdefault("status_code", response.status_code)
@@ -76,7 +70,7 @@ def send_request(
         return Response(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Backend is not responding. This may be due to an internal error. Please check the "
-            "backend logs and kill the process manually.",
+            "backend logs for details.",
         )
     except requests.exceptions.JSONDecodeError:
         return Response(
@@ -94,7 +88,6 @@ class Request(Message):
     def create(
         tasks: Sequence[AbstractTask],
         extra_paths: Optional[Sequence[str]] = None,
-        timeout: int = 5,
     ):
         """Create a message for creating tasks."""
         if extra_paths:
@@ -102,16 +95,14 @@ class Request(Message):
         else:
             headers = None
         return send_request(
-            "create",
-            TaskResponse,
-            Request(tasks=tasks),
-            headers=headers,
-            timeout=timeout,
+            "create", TaskResponse, Request(tasks=tasks), headers=headers
         )
 
     @staticmethod
     def kill(
-        task_names: Optional[Sequence[str]], force: bool = False, timeout: int = 5
+        task_names: Optional[Sequence[str]],
+        force: bool = False,
+        use_regex: bool = False,
     ):
         """
         Kill task(s).
@@ -120,71 +111,63 @@ class Request(Message):
             task_names (str or list of str, *optional*): The name of tasks to kill. If None,
                 it will kill all tasks.
             force (bool): Whether to force kill the task(s). Default is False.
-            timeout (int): Timeout for the request. Default is 5.
+            use_regex (bool): Whether to match task names using regex. Default is False.
         """
         return send_request(
             "kill",
             TaskResponse,
-            Request(
-                task_names=task_names,
-                force=force,
-            ),
-            timeout=timeout,
+            Request(task_names=task_names, force=force, use_regex=use_regex),
         )
 
     @staticmethod
-    def suspend(task_names: Sequence[str], timeout: int = 5):
+    def suspend(task_names: Sequence[str], use_regex: bool = False):
         """Suspend task(s)"""
         return send_request(
             "suspend",
             TaskResponse,
-            Request(task_names=task_names),
-            timeout=timeout,
+            Request(task_names=task_names, use_regex=use_regex),
         )
 
     @staticmethod
-    def resume(task_names: Optional[Sequence[str]], timeout: int = 5):
+    def resume(task_names: Optional[Sequence[str]], use_regex: bool = False):
         """Resume task(s)"""
         return send_request(
             "resume",
             TaskResponse,
-            Request(task_names=task_names),
-            timeout=timeout,
+            Request(task_names=task_names, use_regex=use_regex),
         )
 
     @staticmethod
-    def remove(task_names: Optional[Sequence[str]], timeout: int = 5):
+    def remove(task_names: Optional[Sequence[str]], use_regex: bool = False):
         """Remove task(s)"""
         return send_request(
             "remove",
             TaskResponse,
-            Request(task_names=task_names),
-            timeout=timeout,
+            Request(task_names=task_names, use_regex=use_regex),
         )
 
     @staticmethod
-    def exit(timeout: int = 5):
+    def exit():
         """Exit backend"""
-        return send_request("exit", Response, timeout=timeout)
+        return send_request("exit", Response)
 
     @staticmethod
-    def status(timeout: int = 5):
+    def status():
         """Get backend status"""
-        return send_request("status", Response, timeout=timeout)
+        return send_request("status", Response)
 
     @staticmethod
-    def monitor(timeout: int = 5):
+    def monitor():
         """Monitor backend"""
-        return send_request("monitor", Response, timeout=timeout)
+        return send_request("monitor", Response)
 
     @staticmethod
-    def test(name: Optional[str] = None, timeout: int = 5):
+    def test(name: Optional[str] = None):
         """
         Query the backend or a specific task whether it is running.
 
         Args:
             name (str, *optional*): The name of the task to query. If None or "backend", it will query the backend.
-            timeout (int): Timeout for the request. Default is 5.
 
         Returns:
             Response: A response object containing the status code and an optional PID.
@@ -192,7 +175,7 @@ class Request(Message):
                 2. If the target is not running, the status code will be 202.
                 3. If the target is running, the status code will be 200 and the PID will be returned (if possible).
         """
-        return send_request("test", Response, Request(name=name), timeout=timeout)
+        return send_request("test", Response, Request(name=name))
 
 
 class Response(Message):
@@ -276,25 +259,11 @@ class TaskResponse(Response):
         )
 
 
-def test_running(name: Optional[str] = None) -> bool:
-    """
-    Test if the backend or a specific task is running. If name is None or "backend", it will test the backend.
-    """
-    try:
-        return Request.test(name).ok()
-    except requests.exceptions.ConnectionError:
-        return False
-
-
 def where() -> Optional[str]:
     """
     Get cache dirname of current running backend. If the backend is not runnning,
     return None.
     """
-    if os.path.isdir(get_cache_dir("backend")):
-        # if where is called in backend, it may lead error
-        return get_cache_dir("")
-
     response = Request.test()
     if response.error():
         raise RuntimeError(
@@ -307,22 +276,21 @@ def where() -> Optional[str]:
 def start_backend(
     blocking: bool = False, host: Optional[str] = None, port: Optional[int] = None
 ):
-    if not test_running():
-        cmd = [
-            sys.executable,
-            "-u",
-            os.path.join(os.path.dirname(__file__), "backend.py"),
-        ]
-        if not blocking:
-            cmd.append("--redirect-output")
-        if host:
-            cmd.extend(["--host", host])
-        if port:
-            cmd.extend(["--port", str(port)])
+    cmd = [
+        sys.executable,
+        "-u",
+        os.path.join(os.path.dirname(__file__), "backend.py"),
+    ]
+    if not blocking:
+        cmd.append("--redirect-output")
+    if host:
+        cmd.extend(["--host", host])
+    if port:
+        cmd.extend(["--port", str(port)])
 
-        proc = subprocess.Popen(cmd)
+    proc = subprocess.Popen(cmd)
 
-        if blocking:
-            proc.wait()
-        else:
-            time.sleep(3)
+    if blocking:
+        proc.wait()
+    else:
+        time.sleep(3)

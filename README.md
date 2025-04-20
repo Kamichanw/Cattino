@@ -3,13 +3,13 @@
 </p>
 
 
-**Catin** is a command-line tool designed for managing tasks with complex dependencies. It is highly configurable, yet comes with sensible defaults out of the box. It is commonly used in AI model training and evaluation pipelines. In this context, it can automatically detect available devices, schedule tasks according to plan, and save execution logs automatically.
+**Cattino** is a command-line tool designed for managing tasks with complex dependencies. It is highly configurable, yet comes with sensible defaults out of the box. It is commonly used in AI model training and evaluation pipelines. In this context, it can automatically detect available devices, schedule tasks according to plan, and save execution logs automatically.
 
 # Installation
 In the current version, only installation from source is supported.
 ```bash
-git clone https://github.com/Kamichanw/catin.git
-cd ./catin
+git clone https://github.com/Kamichanw/cattino.git
+cd ./cattino
 pip install -e .
 ```
 Once the installation is complete, you can use `meow meow` in the command line terminal. If the installation is successful, it will output the current version number.
@@ -21,11 +21,11 @@ If you already have your own training script `train.py`, which requires 2 device
 meow create "python train.py" --task-name train --min-devices 2 --requires-memory-per-device 20000
 ```
 
-When creating the task for the first time, Catin will automatically start a local server. If sufficient devices are available, the task will start immediately. Otherwise, it will wait until the conditions are met.
+When creating the task for the first time, Cattino will automatically start a local server. If sufficient devices are available, the task will start immediately. Otherwise, it will wait until the conditions are met.
 
 Once the task starts running, its output will be automatically redirected to a cached log file. You can view the task's output by running `meow watch <your-task-name>`.
 
-Catin can seamlessly integrate with `hydra` or `argparse`. Assuming your script accepts additional options, you can use `--` at the end of the command and add the extra options afterward:
+Cattino can seamlessly integrate with `hydra` or `argparse`. Assuming your script accepts additional options, you can use `--` at the end of the command and add the extra options afterward:
 
 ```shell
 # use with argparse

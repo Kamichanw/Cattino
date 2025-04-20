@@ -8,12 +8,12 @@ import enum
 from typing import List, Literal, Optional, Union, TYPE_CHECKING
 from collections import Counter
 
-from catin.utils import is_valid_filename
-from catin.core.device_allocator import DeviceAllocator
+from cattino.utils import is_valid_filename
+from cattino.core.device_allocator import DeviceAllocator
 
 
 if TYPE_CHECKING:
-    from catin.tasks.task_graph import TaskGraph
+    from cattino.tasks.task_graph import TaskGraph
 
 
 class TaskStatus(enum.Enum):
@@ -24,12 +24,14 @@ class TaskStatus(enum.Enum):
     Failed = enum.auto()  # The task has finished with an error
 
 
-class AbstractTask:
+class AbstractTask(ABC):
     def __init__(self, name: str):
         self.name = name
         self._group: Optional["TaskGroup"] = None
         if self.name == "backend":
-            raise ValueError("Task name cannot be 'backend'. It is reserved for catin.")
+            raise ValueError(
+                "Task name cannot be 'backend'. It is reserved for cattino."
+            )
         if not is_valid_filename(self.name):
             raise ValueError(
                 f"'{self.name}' is not a valid task name. It should be a valid dirname."
@@ -66,8 +68,24 @@ class AbstractTask:
         """
         pass
 
+    @abstractmethod
+    def cancel(self) -> None: ...
 
-class Task(AbstractTask, ABC):
+    @abstractmethod
+    def suspend(self) -> None: ...
+
+    @abstractmethod
+    def resume(self) -> None: ...
+
+    @abstractmethod
+    def terminate(self, force: bool = False) -> None: ...
+
+    @property
+    @abstractmethod
+    def is_cancelled(self) -> bool: ...
+
+
+class Task(AbstractTask):
     def __init__(self, task_name: Optional[str] = None, priority: int = 0):
         """
         Initialize an abstract backend task.
@@ -88,17 +106,15 @@ class Task(AbstractTask, ABC):
 
         self.create_time = time.time_ns()
         self.priority = priority
+        self._is_cancelled = False
 
     @abstractmethod
     def start(self) -> None:
         """
-        Start the task.
+        Start the task. Cattino ensures that is_ready is True when this function is called.
 
         This method begins the task's execution. Subclasses must implement the logic to start the task.
         """
-        if self.is_ready:
-            # do your own logic here
-            ...
 
     @abstractmethod
     def wait(self, timeout: Optional[float] = None) -> None:
@@ -112,25 +128,51 @@ class Task(AbstractTask, ABC):
             # do your own logic here
             ...
 
+    def cancel(self) -> None:
+        """
+        Cancel a task that hasn't started yet. Once the task is cancelled, it
+        won't be scheduled for execution.
+        """
+        if self.status in [
+            TaskStatus.Done,
+            TaskStatus.Failed,
+            TaskStatus.Running,
+        ]:
+            return
+
+        self._is_cancelled = True
+
+    @property
+    def is_cancelled(self) -> bool:
+        """
+        Check if the task is cancelled.
+        """
+        return self._is_cancelled
+
     @abstractmethod
     def suspend(self) -> None:
         """
         Postpone a task. If the task is currently running, terminate it and set its status to pending.
         """
-        if self.status in [TaskStatus.Done, TaskStatus.Failed]:
+        if self.status in [TaskStatus.Done, TaskStatus.Failed, TaskStatus.Suspended]:
             return
         if self.status == TaskStatus.Running:
             self.terminate()
-        elif self.status == TaskStatus.Waiting:
-            ...
+
         # set status to Pending
+        ...
 
     @abstractmethod
     def resume(self) -> None:
         """
-        Resume a pending task. If the task is not pending, it does nothing.
+        Resume a pending or executed task to a ready-to-start state.
+        If task is running or waiting, it should do nothing. The subclasses should
+        guarantee that all inner variables are reset to the initial state.
+
+        Note that only cattino can call this method when the task has been executed.
+        CLI users should use the `resume` command to a suspended task.
         """
-        if self.status == TaskStatus.Suspended:
+        if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:
             # do your own logic here, set status to Waiting
             ...
 
@@ -178,7 +220,6 @@ class DeviceRequiredTask(Task):
         self,
         task_name: Optional[str] = None,
         priority: int = 0,
-        visible_devices: Optional[List[int]] = None,
         requires_memory_per_device: int = 0,
         min_devices: int = 1,
     ) -> None:
@@ -188,7 +229,6 @@ class DeviceRequiredTask(Task):
         Args:
             requires_memory_per_device (int): Memory required per device (in MiB).
             min_devices (int): Minimum number of devices required.
-            visible_devices (List[int]): List of visible device indices.
             task_name (Optional[str], optional): Name of the task. Defaults to None.
             priority (int, optional): Task priority. Defaults to 0.
         """
@@ -199,9 +239,6 @@ class DeviceRequiredTask(Task):
 
         self.requires_memory_per_device = requires_memory_per_device
         self.min_devices = min_devices
-        self.visible_devices = (
-            visible_devices or DeviceAllocator.get_all_device_indices()
-        )
 
     @property
     def assigned_device_indices(self) -> Optional[List[int]]:
@@ -289,7 +326,7 @@ class TaskGroup(AbstractTask):
             )
 
         if isinstance(execute_strategy, str):
-            from catin.tasks.task_graph import TaskGraph
+            from cattino.tasks.task_graph import TaskGraph
 
             task_graph = TaskGraph()
             task_graph.add_tasks_from(tasks)
@@ -327,17 +364,43 @@ class TaskGroup(AbstractTask):
         """
         return self.graph.tasks
 
+    def cancel(self):
+        """
+        Cancel all tasks and groups in the group.
+        """
+        for subtask in self.subtasks:
+            subtask.cancel()
+
+    def suspend(self):
+        """
+        Suspend all tasks and groups in the group.
+        """
+        for subtask in self.subtasks:
+            subtask.suspend()
+
+    def resume(self):
+        """
+        Resume all tasks and groups in the group.
+        """
+        for subtask in self.subtasks:
+            subtask.resume()
+
+    def terminate(self, force: bool = False):
+        """
+        Terminate all tasks and groups in the group.
+        """
+        for subtask in self.subtasks:
+            subtask.terminate(force=force)
+
+    @property
+    def is_cancelled(self) -> bool:
+        """
+        Check if the task group is cancelled.
+        """
+        return all(subtask.is_cancelled for subtask in self.subtasks)
+
     def __iter__(self):
         return iter(self.subtasks)
 
     def __len__(self):
         return len(self.subtasks)
-
-    def get_task_by_name(self, name: str) -> Optional[Union[Task, "TaskGroup"]]:
-        """
-        Get a task or task group by its name.
-        """
-        for task in self.subtasks:
-            if task.name == name:
-                return task
-        return self.graph.get_task_by_name(name)

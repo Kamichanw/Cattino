@@ -4,19 +4,19 @@ import random
 import time
 
 from tqdm import tqdm
-import catin
-from catin.tasks import TaskGroup, TaskGraph, ProcTask
+import cattino
+from cattino.tasks import TaskGroup, TaskGraph, ProcTask
 
 
 class MyTask(ProcTask):
 
-    def on_start(self):
-        super().on_start()
+    async def on_start(self):
+        await super().on_start()
         print(f"Task {self.name} started")
 
-    def on_end(self):
+    async def on_end(self):
         # make sure call super() first
-        super().on_end()
+        await super().on_end()
         print(f"Task {self.name} ended")
 
 
@@ -24,10 +24,12 @@ class MyTaskGroup(TaskGroup):
     def __init__(self, tasks, execute_strategy="sequential"):
         super().__init__(tasks=tasks, execute_strategy=execute_strategy)
 
-    def on_start(self):
+    async def on_start(self):
+        await super().on_start()
         print("Task group started")
 
-    def on_end(self):
+    async def on_end(self):
+        await super().on_end()
         print("Task group ended")
 
 
@@ -61,10 +63,10 @@ g.add_edges_from([(tasks[0], tasks[i]) for i in range(1, len(tasks) - 1)])
 g.add_edges_from([(tasks[i], tasks[-1]) for i in range(len(tasks) - 1)])
 tasks_group = MyTaskGroup(tasks=tasks, execute_strategy=g)
 
-catin.export(tasks_group)
-# catin.export(MyTask(progress_bar_task, task_name=f"{num}process-bar"))
+cattino.export(tasks_group)
+# cattino.export(MyTask(progress_bar_task, task_name=f"{num}process-bar"))
 
-# from catin.core.task_scheduler import TaskScheduler
+# from cattino.core.task_scheduler import TaskScheduler
 # scheduler = TaskScheduler()
 # async def main():
 #     await scheduler.dispatch(tasks_group)

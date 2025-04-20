@@ -3,7 +3,6 @@ import inspect
 import itertools
 import os
 import re
-import shlex
 import string
 import sys
 import psutil
@@ -22,10 +21,10 @@ from typing import (
     overload,
 )
 
-from catin.constants import CATIN_HOME, CACHE_DIR_FORMAT, DEFAULT_CATIN_HOME
+from cattino.constants import CATTINO_HOME, CACHE_DIR_FORMAT, DEFAULT_CATTINO_HOME
 
 if TYPE_CHECKING:
-    from catin.tasks.interface import Task, TaskGroup
+    from cattino.tasks.interface import AbstractTask
 
 
 def import_pynvml():
@@ -56,7 +55,7 @@ def import_pynvml():
     After all the troubles, we decide to copy the official `pynvml`
     module to our codebase, and use it directly.
     """
-    import catin.third_party.pynvml as pynvml
+    import cattino.third_party.pynvml as pynvml
 
     return pynvml
 
@@ -70,25 +69,27 @@ def resolve_obj_by_qualname(fullname: str) -> Any:
     return getattr(module, obj_name)
 
 
-def get_catin_home() -> str:
+def get_cattino_home() -> str:
     """
     Get the path to the cache directory.
     """
-    if CATIN_HOME != DEFAULT_CATIN_HOME:
-        return os.path.abspath(CATIN_HOME)
+    if CATTINO_HOME != DEFAULT_CATTINO_HOME:
+        os.makedirs(CATTINO_HOME, exist_ok=True)
+        return os.path.abspath(CATTINO_HOME)
 
     search_path = [
-        os.path.join(os.getcwd(), "catin-dev"),
-        os.path.join(os.getcwd(), "catin"),
+        os.path.join(os.getcwd(), "cattino-dev"),
+        os.path.join(os.getcwd(), "cattino"),
     ]
     for path in search_path:
         if os.path.isdir(path):
-            # if user installed catin with editable mode, the source code will be
-            # located in os.path.join(os.getcwd(), "catin"). we can't save logs in
+            # if user installed cattino with editable mode, the source code will be
+            # located in os.path.join(os.getcwd(), "cattino"). we can't save logs in
             # source dir, because `meow clean` will delete source code unexpectedly.
             if "setup.py" not in os.listdir(path):
                 return path
-    return DEFAULT_CATIN_HOME
+    os.makedirs(DEFAULT_CATTINO_HOME, exist_ok=True)
+    return DEFAULT_CATTINO_HOME
 
 
 @overload
@@ -101,9 +102,7 @@ def get_cache_dir(filename: str, backend_pid: Optional[int] = None) -> str:
 
 
 @overload
-def get_cache_dir(
-    task: Union["Task", "TaskGroup"], backend_pid: Optional[int] = None
-) -> str:
+def get_cache_dir(task: "AbstractTask", backend_pid: Optional[int] = None) -> str:
     """
     Get the current cache directory with given task. Since the cache directory is based on the create time of the backend process,
     this function needs the process ID. If the process ID is not provided, it will use the current process ID.
@@ -125,7 +124,7 @@ def get_cache_dir(filename_or_task, backend_pid=None) -> str:
         )
 
     cache_dir = os.path.join(
-        get_catin_home(),
+        get_cattino_home(),
         datetime.fromtimestamp(psutil.Process(backend_pid).create_time()).strftime(
             format_str
         ),
@@ -281,13 +280,16 @@ def split_params(params_str: str) -> List[str]:
     return params
 
 
+import re
+from cattino.utils import split_params
+
 class Magics:
-    """Magic variables and resolvers for catin."""
+    """Magic variables and resolvers for cattino."""
 
     @classmethod
     def resolve(cls, string: str, **kwargs) -> str:
         """Resolve magic variables and functions in a string."""
-        from catin.settings import settings
+        from cattino.settings import settings
 
         MAGICS = re.compile(r"\${([^{}]*(?:\{[^{}]*\}[^{}]*)*)}")
 
@@ -318,7 +320,7 @@ class Magics:
     @classmethod
     def register_new_resolver(cls, name: str, func):
         """Register a new resolver."""
-        from catin.settings import settings
+        from cattino.settings import settings
 
         if not callable(func):
             raise ValueError(f"Resolver {name} is not callable.")
@@ -330,7 +332,7 @@ class Magics:
     @classmethod
     def register_new_variable(cls, name: str):
         """Register a new magic variable."""
-        from catin.settings import settings
+        from cattino.settings import settings
 
         if not isinstance(name, str):
             raise ValueError(f"Variable {name} is not a string.")
@@ -339,8 +341,9 @@ class Magics:
     @classmethod
     def register_new_constant(cls, name: str, value: str):
         """Register a new magic variable."""
-        from catin.settings import settings
+        from cattino.settings import settings
 
         if not isinstance(name, str) or not isinstance(value, str):
             raise ValueError(f"The name and value of the constant must be string.")
         settings.magic_constants = {**settings.magic_constants, name: value}
+

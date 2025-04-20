@@ -5,6 +5,7 @@ import re
 import runpy
 import shlex
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -14,15 +15,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, List, Literal, Optional, Sequence, Tuple
 
-from catin import settings
-from catin.constants import TASK_GLOBALS_KEY
-from catin.comms import Request, Response, start_backend, test_running, where
-from catin.tasks.proc_task import ProcTask
-from catin.tasks.interface import DeviceRequiredTask, TaskGroup
-from catin.utils import (
+import psutil
+
+from cattino import settings
+from cattino.constants import TASK_GLOBALS_KEY
+from cattino.comms import Request, Response, start_backend, where
+from cattino.tasks.proc_task import ProcTask
+from cattino.tasks.interface import DeviceRequiredTask, TaskGroup
+from cattino.utils import (
     Magics,
     get_cache_dir,
-    get_catin_home,
+    get_cattino_home,
     open_redirected_stream,
     split_params,
 )
@@ -187,7 +190,10 @@ def run(host: Optional[str], port: Optional[int]):
     """
     Start the backend.
     """
-    start_backend(blocking=True, host=host, port=port)
+    if not Request.test().ok():
+        start_backend(blocking=True, host=host, port=port)
+    else:
+        click.echo("Backend is already running. Use `meow watch` to see the output.")
 
 
 @main.command()
@@ -197,7 +203,7 @@ def meow():
     """
     import pkg_resources  # type: ignore[import]
 
-    click.echo(f"Catin: {pkg_resources.get_distribution('catin').version}")
+    click.echo(f"Cattino: {pkg_resources.get_distribution('cattino').version}")
 
 
 @main.command()
@@ -241,14 +247,6 @@ def test(name: Optional[str]):
     help="Priority of the task. Defaults to 0.",
 )
 @click.option(
-    "--visible-devices",
-    "-d",
-    type=int,
-    multiple=True,
-    required=False,
-    help="List of visible devices. Defaults to all devices.",
-)
-@click.option(
     "--requires-memory-per-device",
     "-M",
     type=int,
@@ -281,7 +279,6 @@ def create(
     input: str,
     task_name: Optional[str],
     priority: Optional[int],
-    visible_devices: Optional[List[int]],
     requires_memory_per_device: Optional[int],
     min_devices: Optional[int],
     multirun: bool,
@@ -290,10 +287,11 @@ def create(
 ):
     """
     Create a new task from a Python script or command string.
-    To create a task from a Python script, use `catin.export` to export an object
-    inheriting from `catin.tasks.Task` or `catin.tasks.TaskGroup` in that Python script.
+    To create a task from a Python script, use `cattino.export` to export an object
+    inheriting from `cattino.tasks.Task` or `cattino.tasks.TaskGroup` in that Python script.
     """
-    start_backend()
+    if not Request.test().ok():
+        start_backend()
     run_dir = where()
     fullname = f"{as_group}/{task_name}" if as_group and task_name else None
     if run_dir is None:
@@ -333,8 +331,6 @@ def create(
             task.priority = priority
 
         if issubclass(type(task), DeviceRequiredTask):
-            if visible_devices:
-                task.visible_devices = list(visible_devices)  # type: ignore
             if requires_memory_per_device is not None:
                 task.requires_memory_per_device = requires_memory_per_device  # type: ignore
             if min_devices is not None:
@@ -352,7 +348,7 @@ def create(
                 click.echo(
                     "The input file does not contain a valid task object with command\n"
                     f"python {' '.join(sys.argv)}\n"
-                    "Please ensure you've exported a task object with `catin.export`, "
+                    "Please ensure you've exported a task object with `cattino.export`, "
                     "and there is no exception during execution."
                 )
                 sys.exit(1)
@@ -411,7 +407,7 @@ def monitor(name):
 
 
 @main.command()
-@click.argument("name", type=str, required=False)
+@click.argument("fullname", type=str, required=False)
 @click.option(
     "--stream",
     "-s",
@@ -419,7 +415,7 @@ def monitor(name):
     default="stdout",
     help="Stream to watch. Defaults to stdout.",
 )
-def watch(name: Optional[str], stream: str):
+def watch(fullname: Optional[str], stream: str):
     """
     Redirect a output stream of backend or a specific task to terminal.
     If no task name is provided, the backend's output stream will be redirected.
@@ -430,14 +426,13 @@ def watch(name: Optional[str], stream: str):
         sys.exit(1)
     backend_pid = backend_response.pid
 
-    if name is None:
-        name = "backend"
-    else:
-        if not os.path.exists(
-            os.path.join(get_cache_dir(name, backend_pid), f"{stream}.log")
-        ):
-            click.echo(f"{name} does not exist or has not started yet.")
-            sys.exit(1)
+    if fullname is None:
+        fullname = "backend"
+
+    task_cache_dir = get_cache_dir(fullname, backend_pid)
+    if not os.path.exists(os.path.join(task_cache_dir, f"{stream}.log")):
+        click.echo(f"{fullname} does not exist or has not started yet.")
+        sys.exit(1)
 
     PROGRESS_BAR_PATTERN = re.compile(r"\d+%\|.*\| \d+/\d+")
     is_running = threading.Event()
@@ -447,7 +442,7 @@ def watch(name: Optional[str], stream: str):
         while not is_running.is_set():
             time.sleep(2)
             try:
-                if not test_running(name):
+                if not Request.test(fullname).ok():
                     is_running.set()
             except Exception:
                 is_running.set()
@@ -455,7 +450,7 @@ def watch(name: Optional[str], stream: str):
 
     threading.Thread(target=running_test, daemon=True).start()
 
-    with open_redirected_stream(get_cache_dir(name, backend_pid), stream, "r") as f:
+    with open_redirected_stream(task_cache_dir, stream, "r") as f:
         # filter progress bars, and only output the last states
         exist_lines = f.readlines()
         last_progress_bar = None
@@ -500,26 +495,22 @@ def watch(name: Optional[str], stream: str):
     "-A",
     is_flag=True,
     default=False,
-    help="Suspend all tasks.",
+    help="Suspend all tasks or match names by regex expressions.",
 )
 @click.argument("name", type=str, required=False, nargs=-1)
 def suspend(all: bool, name: Tuple[str]):
     """
-    Suspend specific tasks by name. If the task is running, it will be terminated forcefully.
-    Note that the end hooks of the task will not be called.
+    Suspend specific tasks or groups by full name or regex expressions. If the task is running, 
+    it will be terminated forcefully. Note that the end hooks of the task will not be called.
     """
-    if all:
-        if name:
-            click.confirm(
-                "--all/-A option will suspend all tasks. Continue?",
-                abort=True,
-            )
-        name = None  # type: ignore
-    else:
-        if not name:
-            click.echo("No task name provided.")
-            sys.exit(1)
-    response = Request.suspend(name)
+    if not name and not all:
+        click.echo("No task name provided.")
+        sys.exit(1)
+    if name and all:
+        # collect raw strings for regex matching
+        name = (repr(n) for n in name)
+
+    response = Request.suspend(name, use_regex=all)
     print_response(
         response,
         lambda success: (
@@ -542,24 +533,21 @@ def suspend(all: bool, name: Tuple[str]):
     "-A",
     is_flag=True,
     default=False,
-    help="Resume all tasks.",
+    help="Resume all tasks or match names by regex expressions.",
 )
 @click.argument("name", type=str, required=False, nargs=-1)
 def resume(all: bool, name: Tuple[str]):
     """
-    Resume specific tasks by name.
+    Resume specific tasks or groups by full name or regex expressions. If the task is not in suspended
+    status, it will be ignored.
     """
-    if all:
-        if name:
-            click.confirm(
-                "--all/-A option will resume all tasks. Continue?",
-                abort=True,
-            )
-        name = None  # type: ignore
-    else:
-        if not name:
-            click.echo("No task name provided.")
-            sys.exit(1)
+    if not name and not all:
+        click.echo("No task name provided.")
+        sys.exit(1)
+    if name and all:
+        # collect raw strings for regex matching
+        name = (repr(n) for n in name)
+
     response = Request.resume(name)
     print_response(
         response,
@@ -583,7 +571,7 @@ def resume(all: bool, name: Tuple[str]):
     "-A",
     is_flag=True,
     default=False,
-    help="Kill all running tasks.",
+    help="Kill all running tasks or match names by regex expressions.",
 )
 @click.option(
     "--force",
@@ -595,7 +583,8 @@ def resume(all: bool, name: Tuple[str]):
 @click.argument("name", nargs=-1, type=str, required=False)
 def kill(all: bool, force: bool, name: Tuple[str]):
     """
-    Kill specific tasks by name. If you want to terminate the backend, use `meow exit` instead.
+    Kill specific tasks or groups by full name or regex expressions. 
+    If you want to terminate the backend, use `meow exit` instead.
     """
     if "backend" in name:
         click.echo(
@@ -603,17 +592,12 @@ def kill(all: bool, force: bool, name: Tuple[str]):
         )
         sys.exit(1)
 
-    if all:
-        if name:
-            click.confirm(
-                "--all/-A option will kill all tasks. Continue?",
-                abort=True,
-            )
-        name = None  # type: ignore
-    else:
-        if not name:
-            click.echo("No task name provided.")
-            sys.exit(1)
+    if not name and not all:
+        click.echo("No task name provided.")
+        sys.exit(1)
+    if name and all:
+        # collect raw strings for regex matching
+        name = (repr(n) for n in name)
 
     response = Request.kill(name, force)
     print_response(
@@ -634,29 +618,25 @@ def kill(all: bool, force: bool, name: Tuple[str]):
     "-A",
     is_flag=True,
     default=False,
-    help="Remove all tasks.",
+    help="Remove all tasks or match names by regex expressions.",
 )
 @click.argument("name", nargs=-1, type=str, required=False)
 def remove(all: bool, name: Tuple[str]):
     """
-    Remove specific tasks. If a task is running, it will be terminated forcibly.
+    Remove specific tasks or groups by full name or regex expressions.
+    If a task is running, it will be terminated forcibly.
     In this case, if `cascade-cancel-on-failure` is set to `True`, all subsequent tasks
     will be cancelled as well. To avoid this, use `meow kill` to terminate the tasks first.
     """
     if "backend" in name:
         click.echo("Backend cannot be removed.")
         sys.exit(1)
-    if all:
-        if name:
-            click.confirm(
-                "--all/-A option will remove all tasks. Continue?",
-                abort=True,
-            )
-        name = None  # type: ignore
-    else:
-        if not name:
-            click.echo("No task name provided.")
-            sys.exit(1)
+    if not name and not all:
+        click.echo("No task name provided.")
+        sys.exit(1)
+    if name and all:
+        # collect raw strings for regex matching
+        name = (repr(n) for n in name)
 
     response = Request.remove(name)
     print_response(
@@ -673,16 +653,35 @@ def remove(all: bool, name: Tuple[str]):
 
 
 @main.command()
-def exit():
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    default=False,
+    type=bool,
+    help=f"Forcefully kill processes occupying the host: {settings.host} and port: {settings.port}.",
+)
+def exit(force: bool):
     """
-    Exit the backend forcefully.
-    If you want to call end hooks of runnning tasks properly, use `meow kill --all` instead.
+    Exit the backend. even if backend may not respond.
+    If you want to call end hooks of running tasks properly, use `meow kill --all` instead.
     """
-    response = Request.exit()
-    if response.detail:
-        click.echo(response.detail)
-    if response.error():
-        sys.exit(1)
+
+    if force:
+        ip_address = socket.gethostbyname(settings.host)
+        for proc in psutil.process_iter(attrs=["pid", "name"]):
+            try:
+                for conn in proc.net_connections(kind="inet"):
+                    if conn.laddr.ip == ip_address and conn.laddr.port == settings.port:
+                        proc.kill()
+                        break
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+    else:
+        response = Request.exit()
+        if response.error():
+            click.echo(response.detail)
+            sys.exit(1)
 
     click.echo("Backend exiting...")
 
@@ -702,7 +701,7 @@ def retrieve_setting_help():
 
 
 set_docstring = f"""
-Change the settings of catin.
+Change the settings of cattino.
 
 \b
 Available settings:
@@ -815,7 +814,7 @@ def clean(
     """
     Clean up the cache directory based on the specified date and time options.
     """
-    catin_home = get_catin_home()
+    cattino_home = get_cattino_home()
     response = Request.test()
     current_cache_dir = (
         get_cache_dir("backend", response.pid) if hasattr(response, "pid") else None
@@ -860,13 +859,15 @@ def clean(
             settings.clear()
 
     cache_list = [
-        str(dirs.parent) for dirs in Path(catin_home).rglob("backend") if dirs.is_dir()
+        str(dirs.parent)
+        for dirs in Path(cattino_home).rglob("backend")
+        if dirs.is_dir()
     ]
     # build directory tree to remove empty parent dir
     tree: dict = {}
     for path in cache_list:
         current = tree
-        for part in Path(path.removeprefix(catin_home)).parts:
+        for part in Path(path.removeprefix(cattino_home)).parts:
             current = current.setdefault(part, {})
 
     def clean_dir_tree(prefix: str, d: dict):
@@ -886,9 +887,9 @@ def clean(
     # os.path.join works correctly. Otherwise, os.path.join(path, "/")
     # will always return the root directory "/".
     tree[""] = tree.pop("/", {})
-    clean_dir_tree(catin_home, tree)
+    clean_dir_tree(cattino_home, tree)
 
-    click.echo(f"Clean completed from {catin_home}.")
+    click.echo(f"Clean completed from {cattino_home}.")
 
 
 if __name__ == "__main__":

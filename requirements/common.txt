@@ -7,3 +7,4 @@ fastapi
 uvicorn
 python-multipart
 aiorwlock
+loguru

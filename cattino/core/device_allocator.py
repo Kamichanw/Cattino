@@ -1,10 +1,11 @@
 import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
-from catin.platforms import current_platform
+from cattino.settings import settings
+from cattino.platforms import current_platform
 
 if TYPE_CHECKING:
-    from catin.tasks.interface import DeviceRequiredTask
+    from cattino.tasks.interface import DeviceRequiredTask
 
 
 class DeviceAllocator:
@@ -41,35 +42,31 @@ class DeviceAllocator:
         """
         if task.assigned_device_indices is not None:
             return
-        if (
-            not task.visible_devices
-            or task.requires_memory_per_device == 0
-            or task.min_devices == 0
-        ):
+        if task.requires_memory_per_device == 0 or task.min_devices == 0:
             task._assigned_device_indices = []
             return
 
-        if task.min_devices > len(task.visible_devices):
+        if task.min_devices > len(settings.visible_devices):
             raise ValueError(
-                f"Not enough devices: required {task.min_devices} but only {len(task.visible_devices)} visible."
+                f"Not enough devices: required {task.min_devices} but only {len(settings.visible_devices)} visible."
             )
 
         max_memory = max(
             current_platform.get_device_total_memory(idx)
-            for idx in task.visible_devices
+            for idx in settings.visible_devices
         )
         if task.requires_memory_per_device > max_memory:
             raise ValueError(
                 f"Insufficient memory: requires {task.requires_memory_per_device} MiB, but max available is {max_memory} MiB."
             )
 
-        # get free memory that is not controlled by catin
+        # get free memory that is not controlled by cattino
         free_memory = {
             device_id: current_platform.get_device_free_memory(device_id)
             + current_platform.get_proc_memory_usage(
                 pid_or_proc=os.getpid(), device_id=device_id, include_children=True
             )
-            for device_id in task.visible_devices
+            for device_id in settings.visible_devices
         }
 
         for running_task in DeviceAllocator._running_tasks:

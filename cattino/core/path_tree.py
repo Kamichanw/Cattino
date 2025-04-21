@@ -5,7 +5,7 @@ T = TypeVar("T")  # Generic type for data
 
 
 @dataclass
-class Node:
+class Node(Generic[T]):
     """
     A node in the tree structure.
 
@@ -84,7 +84,7 @@ class PathTree(Generic[T]):
         """
         return self.nodes[path]
 
-    def __getitem__(self, path: str) -> T:
+    def __getitem__(self, path: str) -> Optional[T]:
         """
         Retrieves the value of a node from the tree based on the given path.
         Args:

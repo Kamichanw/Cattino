@@ -10,6 +10,7 @@ from typing import (
     Dict,
     Sequence,
     Optional,
+    Union,
     overload,
 )
 
@@ -66,7 +67,7 @@ class TaskScheduler:
         self._name_tree = PathTree[AbstractTask]("fullname")
         self._name_tree_lock = aiorwlock.RWLock()
 
-    def _remove_from_group_info(self, task: Task):
+    def _remove_from_group_info(self, task: AbstractTask):
         """
         Remove task from group info tree.
         Note that this method is lock-free, so caller should wrap it in pending task and group info locks.
@@ -85,7 +86,7 @@ class TaskScheduler:
             group_info.remaining.remove(task)
         del self._group_info[task]
 
-        if len(group_info.total) == 0:
+        if len(group_info.total) == 0 and group:
             self._remove_from_group_info(group)
 
     async def _execute_task(self, task: Task):
@@ -98,7 +99,7 @@ class TaskScheduler:
             g = t.group
             group_info = self._group_info[t]
             return len(group_info.remaining) == len(group_info.total) and all(
-                self._group_info[next(iter(sub_g))].is_first
+                self._group_info[next(iter(sub_g))].is_first  # type: ignore
                 for sub_g in g.subtasks
                 if issubclass(type(sub_g), TaskGroup)
             )
@@ -107,7 +108,7 @@ class TaskScheduler:
             if task in self._group_info:
                 group_info = self._group_info[task]
                 group_info.is_first = is_first(task)
-                if group_info.is_first:
+                if group_info.is_first and task.group:
                     return gather_pre_hook_tasks(task.group) + [task]
             return [task]
 
@@ -116,7 +117,7 @@ class TaskScheduler:
                 group_info = self._group_info[task]
                 group_info.done.add(task)
                 del self._group_info[task]
-                if len(group_info.total) == len(group_info.done):
+                if len(group_info.total) == len(group_info.done) and task.group:
                     return [task] + gather_post_hook_tasks(task.group)
             return [task]
 
@@ -200,25 +201,28 @@ class TaskScheduler:
         return False
 
     @overload
-    async def get_task(self, fullname: str) -> Optional[AbstractTask]:
-        """Get a task or group by its fullname."""
+    async def get_tasks(self, fullname: str) -> Optional[List[Task]]:
+        """Get tasks by its fullname."""
         ...
 
     @overload
-    async def get_task(self, pattern: re.Pattern) -> Optional[AbstractTask]:
-        """Get a task or group by its name pattern."""
+    async def get_tasks(self, pattern: re.Pattern[str]) -> Optional[List[Task]]:
+        """Get tasks by its name pattern."""
         ...
 
-    async def get_task(self, fullname_or_pattern) -> Optional[AbstractTask]:
+    async def get_tasks(self, fullname_or_pattern) -> Optional[List[Task]]:  # type: ignore
         async with self._name_tree_lock.reader_lock:
             if isinstance(fullname_or_pattern, re.Pattern):
-                for fullname in self._name_tree.nodes:
-                    if fullname_or_pattern.search(fullname):
-                        return self._name_tree[fullname]
-                return None
+                return [
+                    t
+                    for t in await self.all_tasks
+                    if fullname_or_pattern.search(t.fullname)
+                ] or None
+
             if isinstance(fullname_or_pattern, str):
                 try:
-                    return self._name_tree[fullname_or_pattern]
+                    selected_tasks = self._name_tree[fullname_or_pattern]
+                    return [selected_tasks] if issubclass(type(selected_tasks), Task) else selected_tasks.all_tasks  # type: ignore
                 except KeyError:
                     return None
 
@@ -302,14 +306,14 @@ class TaskScheduler:
                             )
                 elif settings.override_exist_tasks == "allow":
                     await self.remove(
-                        [await self.get_task(name) for name in duplicate_task_names]
+                        [self._name_tree[name] for name in duplicate_task_names]  # type: ignore
                     )
                 else:
                     return duplicate_task_names
             return []
 
         if issubclass(type(task), TaskGroup):
-            name_to_skip = await check_duplicate(task.all_tasks)
+            name_to_skip = await check_duplicate(task.all_tasks)  # type: ignore
 
             def set_group_info(group: TaskGroup):
                 group_info = GroupInfo(
@@ -319,7 +323,7 @@ class TaskScheduler:
                 for t in group.subtasks:
                     self._group_info[t] = group_info
                     if issubclass(type(t), TaskGroup):
-                        set_group_info(t)
+                        set_group_info(t)  # type: ignore
                     else:
                         if t.fullname in name_to_skip:
                             t.cancel()
@@ -329,9 +333,9 @@ class TaskScheduler:
                     self._name_tree[t.fullname] = t
 
             async with self._name_tree_lock.writer_lock:
-                set_group_info(task)
+                set_group_info(task)  # type: ignore
         else:
-            name_to_skip = await check_duplicate([task])
+            name_to_skip = await check_duplicate([task])  # type: ignore
             if name_to_skip == [task.fullname]:
                 task.cancel()
                 logger.info(f"Task {task.name} already exists, skipping dispatch.")
@@ -342,22 +346,19 @@ class TaskScheduler:
         async with self._pending_tasks_lock.writer_lock:
             self._pending_tasks.add_task(task)
 
-    async def resume(self, task: AbstractTask) -> None:
+    async def resume(self, task: Task) -> None:
         task.resume()
 
-    async def suspend(self, task: AbstractTask) -> None:
+    async def suspend(self, task: Task) -> None:
         task.suspend()
-        tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task]
-        suspended_tasks = [t for t in tasks if t.status == TaskStatus.Suspended]
-        async with self._executed_tasks_lock.writer_lock:
-            for t in suspended_tasks:
-                if t in self._executed_tasks:
-                    self._executed_tasks.remove(t)
-        async with self._group_info_lock:
-            for t in suspended_tasks:
-                self._group_info[t].remaining.add(t)
+        if task.status == TaskStatus.Suspended:
+            async with self._executed_tasks_lock.writer_lock:
+                if task in self._executed_tasks:
+                    self._executed_tasks.remove(task)
+            async with self._group_info_lock:
+                self._group_info[task].remaining.add(task)
 
-    async def remove(self, tasks: Sequence[AbstractTask]) -> None:
+    async def remove(self, tasks: Sequence[Task]) -> None:
         """
         Remove a task from the pending tasks or executed tasks.
         If the task is running, terminate it forcefully.

@@ -225,7 +225,7 @@ def test(name: Optional[str]):
         click.echo(f"{name} does not exist, has not started yet, or has already ended.")
     else:
         if getattr(response, "pid", None):
-            click.echo(f"{name} is running with PID {response.pid}.")
+            click.echo(f"{name} is running with PID {response.pid}.") # type: ignore
         else:
             click.echo(f"{name} is running.")
 
@@ -424,7 +424,7 @@ def watch(fullname: Optional[str], stream: str):
     if backend_response.error():
         click.echo(backend_response.detail)
         sys.exit(1)
-    backend_pid = backend_response.pid
+    backend_pid = getattr(backend_response, "pid")
 
     if fullname is None:
         fullname = "backend"
@@ -580,13 +580,13 @@ def resume(all: bool, name: Optional[str]):
     default=False,
     help="Force kill tasks.",
 )
-@click.argument("name", nargs=-1, type=str, required=False)
-def kill(all: bool, force: bool, name: Tuple[str]):
+@click.argument("name", type=str, required=False)
+def kill(all: bool, force: bool, name: Optional[str]):
     """
     Kill specific task or group by full name or regex expressions. 
     If you want to terminate the backend, use `meow exit` instead.
     """
-    if "backend" in name:
+    if name and "backend" in name:
         click.echo(
             "You cannot kill the backend using kill command. Use `meow exit` instead."
         )
@@ -628,7 +628,7 @@ def remove(all: bool, name: Optional[str]):
     In this case, if `cascade-cancel-on-failure` is set to `True`, all subsequent tasks
     will be cancelled as well. To avoid this, use `meow kill` to terminate the tasks first.
     """
-    if "backend" in name:
+    if name and "backend" in name:
         click.echo("Backend cannot be removed.")
         sys.exit(1)
     if not name and not all:
@@ -817,7 +817,7 @@ def clean(
     cattino_home = get_cattino_home()
     response = Request.test()
     current_cache_dir = (
-        get_cache_dir("backend", response.pid) if hasattr(response, "pid") else None
+        get_cache_dir("backend", response.pid) if hasattr(response, "pid") else None # type: ignore
     )
 
     def remove_cache(path: str, force: bool = False):

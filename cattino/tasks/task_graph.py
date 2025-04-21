@@ -12,8 +12,6 @@ class TaskGraph:
 
     def __init__(self):
         super().__init__()
-
-        self._task_map: Dict[str, Task] = {}
         self._graph = DiGraph[Task]()
 
     @property
@@ -27,10 +25,9 @@ class TaskGraph:
     def add_task(self, task: AbstractTask):
         """Add a task or task group to the task graph."""
         if issubclass(type(task), TaskGroup):
-            self.merge(task.graph)
+            self.merge(task.graph) # type: ignore
         else:
-            self._graph.add_node(task)
-            self._task_map[task.name] = task
+            self._graph.add_node(task) # type: ignore
 
     def add_tasks_from(self, tasks: Sequence[AbstractTask]):
         """Add multiple tasks or task groups to the task graph."""
@@ -43,13 +40,13 @@ class TaskGraph:
         If u or v is a task group, all tasks from u will add edges to all tasks in v.
         """
         if issubclass(type(u), Task) and issubclass(type(v), Task):
-            self._graph.add_edge(u, v)
+            self._graph.add_edge(u, v) # type: ignore
         else:
-            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks
-            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks
+            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks # type: ignore
+            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks # type: ignore
             for ut in u_tasks:
                 for vt in v_tasks:
-                    self._graph.add_edge(ut, vt)
+                    self._graph.add_edge(ut, vt) # type: ignore
 
     def add_edges_from(
         self,
@@ -61,10 +58,9 @@ class TaskGraph:
 
     def remove_task(self, task: AbstractTask):
         """Remove a task or all tasks from a group from the task graph."""
-        tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task]
+        tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task] # type: ignore
         for t in tasks:
-            self._graph.remove_node(t)
-            self._task_map.pop(t.name, None)
+            self._graph.remove_node(t) # type: ignore
 
     def remove_tasks_from(self, tasks: List[AbstractTask]):
         """Remove multiple tasks from the task graph."""
@@ -74,13 +70,13 @@ class TaskGraph:
     def remove_edge(self, u: AbstractTask, v: AbstractTask):
         """Remove a dependency edge from task u to task v."""
         if issubclass(type(u), Task) and issubclass(type(v), Task):
-            self._graph.remove_edge(u, v)
+            self._graph.remove_edge(u, v) # type: ignore
         else:
-            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks
-            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks
+            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks # type: ignore
+            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks # type: ignore
             for ut in u_tasks:
                 for vt in v_tasks:
-                    self._graph.remove_edge(ut, vt)
+                    self._graph.remove_edge(ut, vt) # type: ignore
 
     def remove_edges_from(
         self,
@@ -103,7 +99,6 @@ class TaskGraph:
 
     def merge(self, graph: "TaskGraph"):
         self._graph.merge(graph._graph)
-        self._task_map.update(graph._task_map)
 
     def __len__(self):
         return len(self._graph)

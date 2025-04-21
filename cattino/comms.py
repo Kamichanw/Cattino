@@ -38,7 +38,7 @@ def send_request(
     expected_response_cls: type,
     request: Optional["Request"] = None,
     api: str = "post",
-    headers: Dict[str, str] = None,
+    headers: Optional[Dict[str, str]] = None,
 ):
     """
     Post a request to the backend.
@@ -72,11 +72,6 @@ def send_request(
             detail="Backend is not responding. This may be due to an internal error. Please check the "
             "backend logs for details.",
         )
-    except requests.exceptions.JSONDecodeError:
-        return Response(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=response.content.decode(),
-        )
     except Exception as e:
         return Response(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
@@ -84,6 +79,9 @@ def send_request(
 
 
 class Request(Message):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
     @staticmethod
     def create(
         tasks: Sequence[AbstractTask],
@@ -119,7 +117,7 @@ class Request(Message):
         )
 
     @staticmethod
-    def suspend(name: str, use_regex: bool = False):
+    def suspend(name: Optional[str], use_regex: bool = False):
         """Suspend task"""
         return send_request(
             "suspend",
@@ -269,7 +267,7 @@ def where() -> Optional[str]:
             f"Failed to query cache dirname of current backend: {response.detail}"
         )
 
-    return get_cache_dir("", response.pid) if getattr(response, "pid", None) else None
+    return get_cache_dir("", response.pid) if getattr(response, "pid", None) else None # type: ignore
 
 
 def start_backend(

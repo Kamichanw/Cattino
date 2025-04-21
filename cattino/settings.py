@@ -125,7 +125,7 @@ class Settings(BaseModel):
     # prevent calling custom setter recursively
     _internal_set: bool = PrivateAttr(default=False)
     # store the binary settings
-    _bin: SettingsBinary = PrivateAttr(default=None)
+    _bin: SettingsBinary = PrivateAttr(default=None) # type: ignore
     # extra getter
     _getter: Dict[str, Callable] = PrivateAttr(default={})
     # extra setter. to add a setter for attr, add a new entry to this dict.
@@ -232,11 +232,11 @@ class Settings(BaseModel):
 
     def get_description(self, name: str) -> str:
         """Get the docstring of a setting."""
-        return Settings.model_fields[name].description
+        return Settings.model_fields[name].description or ""
 
-    def get_type(self, name: str) -> type:
+    def get_type(self, name: str) -> type[Any]:
         """Get the type of a setting."""
-        return Settings.model_fields[name].annotation
+        return Settings.model_fields[name].annotation or type[Any]
 
     def __getattribute__(self, name):
         if name in Settings.model_fields:

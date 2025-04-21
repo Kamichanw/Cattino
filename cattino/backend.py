@@ -29,8 +29,8 @@ class InterceptHandler(logging.Handler):
         except ValueError:
             level = record.levelno
         frame, depth = logging.currentframe(), 2
-        while frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
+        while frame.f_code.co_filename == logging.__file__:  # type: ignore
+            frame = frame.f_back  # type: ignore
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(
@@ -119,7 +119,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 async def process_tasks(
-    name: str,
+    name: Optional[str],
     func: Callable,
     allow_status: Optional[Sequence[TaskStatus]] = None,
     use_regex: bool = False,
@@ -131,47 +131,51 @@ async def process_tasks(
     # if the func take a sequence as the first argument, we will pass the selected tasks as input
     # otherwise, we will pass the task one by one and try to capture the exception
     assert asyncio.iscoroutinefunction(func), "func must be a coroutine function"
-    is_take_task_func = has_param_type(func, (AbstractTask,), 0)
-    assert is_take_task_func, "func must take a task as the first argument"
+    is_take_sequence_func = has_param_type(func, (Sequence,), 0)
+    is_take_task_func = has_param_type(func, (Task, TaskGroup), 0)
+    assert (
+        is_take_task_func or is_take_sequence_func
+    ), "func must take a task or a sequence of tasks as the first argument"
 
-
-    MATCH_TASK = re.compile(name) if use_regex else None
-
-    task = await scheduler.get_task(MATCH_TASK if use_regex else name)
-    if task is None:
+    tasks = (
+        await scheduler.get_tasks(re.compile(name) if use_regex else name)
+        if name
+        else await scheduler.all_tasks
+    )
+    if tasks is None:
         return Response(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Task {name} not found",
         )
-    elif task.status in allow_status:
-        if is_take_sequence_func:
-            selected_tasks.append(task)
-        else:
-            try:
-                await func(task, **func_kwargs)
-                success.append(name)
-            except Exception as e:
-                logger.exception(e)
-                exception.append(f"Task {task.fullname} failed: {str(e)}")
-                failure.append(name)
-    else:
-        no_op.append(name)
 
+    success, no_op, failure, exception = [], [], [], []
+    allow_status = allow_status or list(TaskStatus)
+    if is_take_sequence_func:
+        for task in tasks:
+            if task.status in allow_status:
+                try:
+                    await func(task, **func_kwargs)
+                    success.append(task.fullname)
+                except Exception as e:
+                    logger.exception(e)
+                    exception.append(f"Task {task.fullname} failed: {str(e)}")
+                    failure.append(task.fullname)
+            else:
+                no_op.append(task.fullname)
+    else:
+        try:
+            await func(tasks, **func_kwargs)
+            success.extend(tasks)
+        except Exception as e:
+            logger.exception(e)
+            failure.extend(tasks)
+            exception.append(f"Some tasks failed: {str(e)}")
 
     detail = "\n".join(exception)
-    if not_found and not success and not no_op and not failure:
-        # if all tasks are not found, we will return 404
-        return TaskResponse(
-            failure=not_found,
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=detail,
-        )
-
-    failure.extend(not_found)
     return TaskResponse(success=success, no_op=no_op, failure=failure, detail=detail)
 
 
-def load_from_message(message: UploadFile = File(...), request: fastapi.Request = None):
+def load_from_message(message: UploadFile = File(...), request: fastapi.Request = None):  # type: ignore
     """
     Load the request from the uploaded file.
     """
@@ -193,59 +197,46 @@ def load_from_message(message: UploadFile = File(...), request: fastapi.Request 
     return request
 
 
+# type: ignore
 @app.post("/kill", response_model=TaskResponse)
 async def kill(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    name = request.name or [task.name for task in await scheduler.running_tasks]
     return await process_tasks(
-        name,
+        request.name,  # type: ignore
         scheduler.terminate,
         [TaskStatus.Running],
-        use_regex=request.use_regex,
-        force=request.force,
+        use_regex=request.use_regex,  # type: ignore
+        force=request.force,  # type: ignore
     )
 
 
 @app.post("/remove", response_model=TaskResponse)
 async def remove(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    name = (
-        await scheduler.all_task_fullnames
-        if request.name is None and request.use_regex
-        else request.name
+    return await process_tasks(
+        request.name, scheduler.remove, use_regex=request.use_regex  # type: ignore
     )
-    return await process_tasks(name, scheduler.remove, use_regex=request.use_regex)
 
 
 @app.post("/suspend", response_model=TaskResponse)
 async def suspend(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    name = (
-        await scheduler.all_task_fullnames
-        if request.name is None and request.use_regex
-        else request.name
-    )
     return await process_tasks(
-        name,
+        request.name,  # type: ignore
         scheduler.suspend,
         [TaskStatus.Running, TaskStatus.Waiting],
-        use_regex=request.use_regex,
+        use_regex=request.use_regex,  # type: ignore
     )
 
 
 @app.post("/resume", response_model=TaskResponse)
 async def resume(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    name = (
-        await scheduler.all_task_fullnames
-        if request.name is None and request.use_regex
-        else request.name
-    )
     return await process_tasks(
-        name,
+        request.name,  # type: ignore
         scheduler.resume,
         [TaskStatus.Suspended],
-        use_regex=request.use_regex,
+        use_regex=request.use_regex,  # type: ignore
     )
 
 
@@ -253,7 +244,7 @@ async def resume(request: Request = Depends(load_from_message)):
 async def create_task(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
     success, failure, exception = [], [], []
-    for task in request.tasks:
+    for task in request.tasks:  # type: ignore
         name = task.name
         try:
             await scheduler.dispatch(task)
@@ -269,14 +260,20 @@ async def create_task(request: Request = Depends(load_from_message)):
 @app.post("/test", response_model=Response)
 async def test(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-
-    if request.name is None or request.name == "backend":
+    name: Optional[str] = request.name  # type: ignore
+    if name is None or name == "backend":
         return Response(status_code=status.HTTP_200_OK, pid=os.getpid())
 
-    task = await scheduler.get_task(request.name)
-    if task is None:
+    tasks = await scheduler.get_tasks(request.name)  # type: ignore
+    if tasks is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND, pid=None)
-
+    if len(tasks) != 1:
+        return Response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            pid=None,
+            detail=f"{name} is not a valid name for task.",
+        )
+    task = tasks[0]
     if task.status != TaskStatus.Running:
         return Response(status_code=status.HTTP_202_ACCEPTED, pid=None)
 

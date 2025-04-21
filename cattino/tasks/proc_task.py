@@ -3,7 +3,6 @@ import shlex
 import inspect
 import subprocess
 import multiprocessing
-import psutil
 from typing import Any, Callable, Dict, Optional, Union, overload
 
 from cattino.constants import CATTINO_RETRY_EXIT_CODE
@@ -114,9 +113,6 @@ class ProcTask(DeviceRequiredTask):
 
     @property
     def status(self) -> TaskStatus:
-
-        if self._is_cancelled:
-            return TaskStatus.Cancelled
         if self._is_pending:
             return TaskStatus.Suspended
         if self._proc is None:
@@ -218,7 +214,7 @@ class ProcTask(DeviceRequiredTask):
 
     def terminate(self, force: bool = False) -> None:
         if self.status == TaskStatus.Running:
-            self._proc.kill() if force else self._proc.terminate()
+            self._proc.kill() if force else self._proc.terminate() # type: ignore
 
     def on_end(self) -> None:
         super().on_end()

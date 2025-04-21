@@ -110,7 +110,7 @@ def get_cache_dir(task: "AbstractTask", backend_pid: Optional[int] = None) -> st
     ...
 
 
-def get_cache_dir(filename_or_task, backend_pid=None) -> str:
+def get_cache_dir(filename_or_task, backend_pid=None) -> str:  # type: ignore
 
     if isinstance(filename_or_task, str):
         format_str = Magics.resolve(
@@ -205,7 +205,7 @@ def is_valid_filename(
         return False
 
     # check reserve keyworks
-    additional_reserved = additional_reserved or ()
+    additional_reserved = tuple(additional_reserved) if additional_reserved else ()
     _WINDOWS_RESERVED_FILE_NAMES = additional_reserved + (
         ("CON", "PRN", "AUX", "CLOCK$", "NUL")
         + tuple(
@@ -283,6 +283,7 @@ def split_params(params_str: str) -> List[str]:
 import re
 from cattino.utils import split_params
 
+
 class Magics:
     """Magic variables and resolvers for cattino."""
 
@@ -346,4 +347,3 @@ class Magics:
         if not isinstance(name, str) or not isinstance(value, str):
             raise ValueError(f"The name and value of the constant must be string.")
         settings.magic_constants = {**settings.magic_constants, name: value}
-

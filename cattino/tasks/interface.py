@@ -5,7 +5,7 @@ import string
 import time
 import enum
 
-from typing import List, Literal, Optional, Union, TYPE_CHECKING
+from typing import List, Literal, Optional, Sequence, Set, Union, TYPE_CHECKING
 from collections import Counter
 
 from cattino.utils import is_valid_filename
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
+    MultiStatus = enum.auto()  # only used for group
     Suspended = enum.auto()  # The task will be delayed until it is woken up.
     Waiting = enum.auto()
     Running = enum.auto()
@@ -67,6 +68,10 @@ class AbstractTask(ABC):
         Make sure to call the parent class method to ensure proper cleanup.
         """
         pass
+
+    @property
+    @abstractmethod
+    def status(self) -> TaskStatus: ...
 
     @abstractmethod
     def cancel(self) -> None: ...
@@ -281,7 +286,7 @@ class DeviceRequiredTask(Task):
 class TaskGroup(AbstractTask):
     def __init__(
         self,
-        tasks: List[AbstractTask],
+        tasks: Sequence[AbstractTask],
         execute_strategy: Union[
             Literal["sequential", "parallel"], "TaskGraph"
         ] = "parallel",
@@ -310,15 +315,16 @@ class TaskGroup(AbstractTask):
         for t in tasks:
             t._group = self
 
-        all_task_name = []
-        for task in self.subtasks:
-            if issubclass(type(task), TaskGroup):
-                all_task_name.extend(t.fullname for t in task.all_tasks)
-            else:
-                all_task_name.append(task.fullname)
+        all_tasks: Set[Task] = set(
+            itertools.chain(
+                *[[t] if not issubclass(type(t), TaskGroup) else t.all_tasks for t in tasks]  # type: ignore
+            )
+        )
 
         duplicate_task_names = [
-            item for item, count in Counter(all_task_name).items() if count > 1
+            item
+            for item, count in Counter(t.fullname for t in all_tasks).items()
+            if count > 1
         ]
         if duplicate_task_names:
             raise ValueError(
@@ -340,19 +346,15 @@ class TaskGroup(AbstractTask):
                     "The execute_strategy has a cycle, which will lead to deadlock."
                 )
             strategy_tasks = set(execute_strategy.tasks)
-            all_tasks = set(
-                itertools.chain(
-                    *[[t] if isinstance(t, Task) else t.all_tasks for t in tasks]
-                )
-            )
+
             if not strategy_tasks.issubset(all_tasks):
                 raise ValueError(
-                    f"{', '.join([t.name for t in strategy_tasks - all_tasks])} from execute_strategy "
+                    f"{', '.join([t.fullname for t in strategy_tasks - all_tasks])} from execute_strategy "
                     "are not in the task group."
                 )
 
             # add remaining tasks that are not in execute_strategy
-            execute_strategy.add_tasks_from(all_tasks - strategy_tasks)
+            execute_strategy.add_tasks_from(list(all_tasks - strategy_tasks))
             task_graph = execute_strategy
 
         self.graph = task_graph
@@ -391,6 +393,14 @@ class TaskGroup(AbstractTask):
         """
         for subtask in self.subtasks:
             subtask.terminate(force=force)
+
+    @property
+    def status(self):
+        return (
+            self.subtasks[0].status
+            if all(self.subtasks[0].status == t.status for t in self.subtasks)
+            else TaskStatus.MultiStatus
+        )
 
     @property
     def is_cancelled(self) -> bool:

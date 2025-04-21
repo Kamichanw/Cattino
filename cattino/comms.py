@@ -100,50 +100,49 @@ class Request(Message):
 
     @staticmethod
     def kill(
-        task_names: Optional[Sequence[str]],
+        name: Optional[str],
         force: bool = False,
         use_regex: bool = False,
     ):
         """
-        Kill task(s).
+        Kill task.
 
         Args:
-            task_names (str or list of str, *optional*): The name of tasks to kill. If None,
-                it will kill all tasks.
-            force (bool): Whether to force kill the task(s). Default is False.
+            name (str, *optional*): The full name of task to kill. If None, kill all tasks.
+            force (bool): Whether to force kill the task. Default is False.
             use_regex (bool): Whether to match task names using regex. Default is False.
         """
         return send_request(
             "kill",
             TaskResponse,
-            Request(task_names=task_names, force=force, use_regex=use_regex),
+            Request(name=name, force=force, use_regex=use_regex),
         )
 
     @staticmethod
-    def suspend(task_names: Sequence[str], use_regex: bool = False):
-        """Suspend task(s)"""
+    def suspend(name: str, use_regex: bool = False):
+        """Suspend task"""
         return send_request(
             "suspend",
             TaskResponse,
-            Request(task_names=task_names, use_regex=use_regex),
+            Request(name=name, use_regex=use_regex),
         )
 
     @staticmethod
-    def resume(task_names: Optional[Sequence[str]], use_regex: bool = False):
-        """Resume task(s)"""
+    def resume(name: Optional[str], use_regex: bool = False):
+        """Resume task"""
         return send_request(
             "resume",
             TaskResponse,
-            Request(task_names=task_names, use_regex=use_regex),
+            Request(name=name, use_regex=use_regex),
         )
 
     @staticmethod
-    def remove(task_names: Optional[Sequence[str]], use_regex: bool = False):
-        """Remove task(s)"""
+    def remove(name: Optional[str], use_regex: bool = False):
+        """Remove task"""
         return send_request(
             "remove",
             TaskResponse,
-            Request(task_names=task_names, use_regex=use_regex),
+            Request(name=name, use_regex=use_regex),
         )
 
     @staticmethod

@@ -497,18 +497,18 @@ def watch(fullname: Optional[str], stream: str):
     default=False,
     help="Suspend all tasks or match names by regex expressions.",
 )
-@click.argument("name", type=str, required=False, nargs=-1)
-def suspend(all: bool, name: Tuple[str]):
+@click.argument("name", type=str, required=False)
+def suspend(all: bool, name: Optional[str]):
     """
-    Suspend specific tasks or groups by full name or regex expressions. If the task is running, 
+    Suspend specific task or group by full name or regex expressions. If the task is running, 
     it will be terminated forcefully. Note that the end hooks of the task will not be called.
     """
     if not name and not all:
         click.echo("No task name provided.")
         sys.exit(1)
     if name and all:
-        # collect raw strings for regex matching
-        name = (repr(n) for n in name)
+        # convert to raw strings for regex matching
+        name = repr(name)
 
     response = Request.suspend(name, use_regex=all)
     print_response(
@@ -535,18 +535,18 @@ def suspend(all: bool, name: Tuple[str]):
     default=False,
     help="Resume all tasks or match names by regex expressions.",
 )
-@click.argument("name", type=str, required=False, nargs=-1)
-def resume(all: bool, name: Tuple[str]):
+@click.argument("name", type=str, required=False)
+def resume(all: bool, name: Optional[str]):
     """
-    Resume specific tasks or groups by full name or regex expressions. If the task is not in suspended
+    Resume specific task or group by full name or regex expressions. If the task is not in suspended
     status, it will be ignored.
     """
     if not name and not all:
         click.echo("No task name provided.")
         sys.exit(1)
     if name and all:
-        # collect raw strings for regex matching
-        name = (repr(n) for n in name)
+        # convert to raw strings for regex matching
+        name = repr(name)
 
     response = Request.resume(name)
     print_response(
@@ -583,7 +583,7 @@ def resume(all: bool, name: Tuple[str]):
 @click.argument("name", nargs=-1, type=str, required=False)
 def kill(all: bool, force: bool, name: Tuple[str]):
     """
-    Kill specific tasks or groups by full name or regex expressions. 
+    Kill specific task or group by full name or regex expressions. 
     If you want to terminate the backend, use `meow exit` instead.
     """
     if "backend" in name:
@@ -596,8 +596,8 @@ def kill(all: bool, force: bool, name: Tuple[str]):
         click.echo("No task name provided.")
         sys.exit(1)
     if name and all:
-        # collect raw strings for regex matching
-        name = (repr(n) for n in name)
+        # convert to raw strings for regex matching
+        name = repr(name)
 
     response = Request.kill(name, force)
     print_response(
@@ -620,10 +620,10 @@ def kill(all: bool, force: bool, name: Tuple[str]):
     default=False,
     help="Remove all tasks or match names by regex expressions.",
 )
-@click.argument("name", nargs=-1, type=str, required=False)
-def remove(all: bool, name: Tuple[str]):
+@click.argument("name", type=str, required=False)
+def remove(all: bool, name: Optional[str]):
     """
-    Remove specific tasks or groups by full name or regex expressions.
+    Remove specific task or group by full name or regex expressions.
     If a task is running, it will be terminated forcibly.
     In this case, if `cascade-cancel-on-failure` is set to `True`, all subsequent tasks
     will be cancelled as well. To avoid this, use `meow kill` to terminate the tasks first.
@@ -635,8 +635,8 @@ def remove(all: bool, name: Tuple[str]):
         click.echo("No task name provided.")
         sys.exit(1)
     if name and all:
-        # collect raw strings for regex matching
-        name = (repr(n) for n in name)
+        # convert to raw strings for regex matching
+        name = repr(name)
 
     response = Request.remove(name)
     print_response(

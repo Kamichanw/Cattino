@@ -28,18 +28,15 @@ class PathTree(Generic[T]):
     based on a name path, separated by given separator.
     """
 
-    def __init__(self, *attr_mapping, sep="/"):
+    def __init__(self, sep="/"):
         """
-        Initializes a PathTree with optional attr mapping.
+        Initializes a PathTree.
 
         Args:
-            *attr_mapping: The name of attributes in T that will be used for creating
-                attr to node mappings. The type of given attributes cannot be str and
-                must be hashable.
+            sep (str): The separator used for the path.
         """
         self._root = Node(name="root")
-        self._attr_mapping = attr_mapping or ()
-        self._rev_mapping: Dict[Any, Node] = {}
+        self.nodes: Dict[str, Node] = {}
         self.sep: str = sep
 
     def set_node(self, path: str, value: T):
@@ -53,115 +50,68 @@ class PathTree(Generic[T]):
         parts = path.split(self.sep)
         current = self._root
 
-        for part in parts:
+        for i, part in enumerate(parts):
             if part not in current.children:
                 current.children[part] = Node(
                     name=part, parent=current if current != self._root else None
                 )
+                self.nodes[self.sep.join(parts[:i + 1])] = current.children[part]
             current = current.children[part]
-
         current.data = value
 
-        for attr in self._attr_mapping:
-            if hasattr(value, attr):
-                attr_value = getattr(value, attr)
-                if isinstance(attr_value, str):
-                    raise TypeError(
-                        f"Attribute '{attr}' of value '{attr_value}' cannot be str."
-                    )
-                self._rev_mapping[attr_value] = current
-
-    def del_node(self, path_or_attr: Union[str, Any]):
+    def del_node(self, path: str):
         """
-        Deletes a node from the tree based on the given path or attribute.
+        Deletes a node from the tree based on the given path.
 
         Args:
-            path_or_attr (str or Any): The path from the root to the node, separated by the specified separator,
-                or an attribute value of the node to delete.
+            path (str): The path from the root to the node, separated by the specified separator.
         """
-        if isinstance(path_or_attr, str):
-            path = path_or_attr
-            parts = path.split(self.sep)
-            current = self._root
-            parent = None
-            key_to_delete = None
+        if path in self.nodes:
+            node = self.nodes[path]
+            if node.parent:
+                del node.parent.children[node.name]
+            del self.nodes[path]
 
-            for part in parts:
-                if part in current.children:
-                    parent = current
-                    key_to_delete = part
-                    current = current.children[part]
-                else:
-                    raise KeyError(f"Path '{path}' not found in the tree.")
-
-            if key_to_delete:
-                for attr in self._attr_mapping:
-                    if hasattr(current.data, attr):
-                        del self._rev_mapping[getattr(current.data, attr)]
-                del parent.children[key_to_delete]
-        else:
-            attr_value = path_or_attr
-            if attr_value not in self._rev_mapping:
-                raise KeyError(f"Attribute '{attr_value}' not found in the tree.")
-            node_to_delete = self._rev_mapping[attr_value]
-            parent = node_to_delete.parent
-            if parent:
-                del parent.children[node_to_delete.name]
-            del self._rev_mapping[attr_value]
-
-    def get_node(self, path_or_attr: Union[str, Any]) -> Node:
+    def get_node(self, path: str) -> Node:
         """
         Retrieves a node from the tree based on the given path or attribute.
 
         Args:
-            path_or_attr (str or Any): The path from the root to the node, separated by the specified separator,
-                or an attribute value of the node to retrieve.
+            path (str): The path from the root to the node, separated by the specified separator.
 
         Returns:
             Node: The node found at the specified path or attribute.
         """
-        if isinstance(path_or_attr, str):
-            path = path_or_attr
-            parts = path.split(self.sep)
-            current = self._root
+        return self.nodes[path]
 
-            for part in parts:
-                if part in current.children:
-                    current = current.children[part]
-                else:
-                    raise KeyError(f"Path '{path}' not found in the tree.")
-
-            return current
-        else:
-            attr_value = path_or_attr
-            if attr_value not in self._rev_mapping:
-                raise KeyError(f"Attribute '{attr_value}' not found in the tree.")
-            return self._rev_mapping[attr_value]
-
-    def __getitem__(self, path_or_attr: Union[str, Any]) -> Optional[T]:
+    def __getitem__(self, path: str) -> T:
         """
-        Retrieves the value of a node from the tree based on the given path or attribute.
+        Retrieves the value of a node from the tree based on the given path.
         Args:
-            path_or_attr (str or Any): The path from the root to the node, separated by the specified separator,
-                or an attribute value of the node to retrieve.
+            path (str): The path from the root to the node, separated by the specified separator.
         Returns:
-            T: The value found at the specified path or attribute.
+            T: The value found at the specified path.
         """
-        return self.get_node(path_or_attr).data
+        return self.nodes[path].data
 
-    def __contains__(self, path_or_attr: Union[str, Any]) -> bool:
+    def __setitem__(self, path: str, value: T):
+        """
+        Sets the value of a node in the tree based on the given path.
+
+        Args:
+            path (str): The path from the root to the node, separated by the specified separator.
+            value (T): The value to set at the node.
+        """
+        self.set_node(path, value)
+
+    def __contains__(self, path: str) -> bool:
         """
         Checks if a node exists in the tree based on the given path or attribute.
 
         Args:
-            path_or_attr (str or Any): The path from the root to the node, separated by the specified separator,
-                or an attribute value of the node to check.
+            path (str): The path from the root to the node, separated by the specified separator.
 
         Returns:
             bool: True if the node exists, False otherwise.
         """
-        try:
-            self.get_node(path_or_attr)
-            return True
-        except KeyError:
-            return False
+        return path in self.nodes

@@ -67,7 +67,7 @@ class Settings(BaseModel):
             "'allow' will directly override existing tasks, "
             "'forbid' will raise an exception if the task exists, "
             "'rename' will add a suffix with an incremental number to the new task. "
-            "'skip' will not execute new tasks if there are existing tasks with the same fullname. "
+            "'skip' will cancel those new tasks if there are existing tasks with the same fullname. "
             "Defaults to 'forbid'."
         ),
     )

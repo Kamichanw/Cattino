@@ -62,10 +62,16 @@ class TaskScheduler:
         self._group_info: Dict[AbstractTask, GroupInfo] = {}
         self._group_info_lock = asyncio.Lock()
 
+        # candidates are the tasks that have no predecessors and are not executed yet
+        # in each step, we will execute at most one task from the candidates
         self._candidates: List[Task] = []
 
         self._name_tree = PathTree[AbstractTask]("fullname")
         self._name_tree_lock = aiorwlock.RWLock()
+
+        # the number of running tasks, including the tasks that are executing end hooks
+        self._num_running_tasks = 0
+        self._num_running_tasks_lock = aiorwlock.RWLock()
 
     def _remove_from_group_info(self, task: AbstractTask):
         """
@@ -95,7 +101,7 @@ class TaskScheduler:
             # check all subtasks, is_first can be True if
             #   - # remaining == # total
             #   - is_first of all subgroups are True
-            assert t.group, f"{t.name} is not in any group"
+            assert t.group, f"{t.fullname} is not in any group"
             g = t.group
             group_info = self._group_info[t]
             return len(group_info.remaining) == len(group_info.total) and all(
@@ -121,16 +127,17 @@ class TaskScheduler:
                     return [task] + gather_post_hook_tasks(task.group)
             return [task]
 
-        if task in self._group_info:
-            async with self._group_info_lock:
-                pre_hook_tasks = gather_pre_hook_tasks(task)
-                # we won't remove parent remaining set even there is no remaining
-                # task in current group, because user may re-add tasks to remaining set
-                # by suspending operation.
-                self._group_info[task].remaining.remove(task)
-        else:
-            pre_hook_tasks = [task]
         try:
+            if task in self._group_info:
+                async with self._group_info_lock:
+                    pre_hook_tasks = gather_pre_hook_tasks(task)
+                    # we won't remove parent remaining set even there is no remaining
+                    # task in current group, because user may re-add tasks to remaining set
+                    # by suspending operation.
+                    self._group_info[task].remaining.remove(task)
+            else:
+                pre_hook_tasks = [task]
+
             for t in pre_hook_tasks:
                 logger.info(
                     f"{'Group' if issubclass(type(t), TaskGroup) else 'Task'} {t.fullname} started."
@@ -163,14 +170,25 @@ class TaskScheduler:
                 async with self._pending_tasks_lock.writer_lock:
                     self._pending_tasks.remove_task(task)
 
-                logger.info(f"Task {task.name} finished with status {task.status}")
+                logger.info(f"Task {task.fullname} finished with status {task.status}")
                 for t in post_hook_tasks:
                     logger.info(
-                        f"{'Group' if issubclass(type(t), TaskGroup) else 'Task'} {t.name} ended."
+                        f"{'Group' if issubclass(type(t), TaskGroup) else 'Task'} {t.fullname} ended."
                     )
                     t.on_end()
         except Exception as e:
             logger.exception(e)
+        finally:
+            async with self._num_running_tasks_lock.writer_lock:
+                self._num_running_tasks -= 1
+
+    @property
+    async def is_running(self) -> bool:
+        """
+        Check if the task scheduler is running.
+        """
+        async with self._num_running_tasks_lock.reader_lock:
+            return self._num_running_tasks > 0
 
     async def step(self):
         """
@@ -194,6 +212,8 @@ class TaskScheduler:
         upcoming_task = self._candidates[0] if self._candidates else None
         if upcoming_task and upcoming_task.is_ready:
             self._candidates = self._candidates[1:]
+            async with self._num_running_tasks_lock.writer_lock:
+                self._num_running_tasks += 1
             async with self._executed_tasks_lock.writer_lock:
                 self._executed_tasks.append(upcoming_task)
             asyncio.create_task(self._execute_task(upcoming_task))
@@ -211,15 +231,15 @@ class TaskScheduler:
         ...
 
     async def get_tasks(self, fullname_or_pattern) -> Optional[List[Task]]:  # type: ignore
-        async with self._name_tree_lock.reader_lock:
-            if isinstance(fullname_or_pattern, re.Pattern):
-                return [
-                    t
-                    for t in await self.all_tasks
-                    if fullname_or_pattern.search(t.fullname)
-                ] or None
+        if isinstance(fullname_or_pattern, re.Pattern):
+            return [
+                t
+                for t in await self.all_tasks
+                if fullname_or_pattern.search(t.fullname)
+            ] or None
 
-            if isinstance(fullname_or_pattern, str):
+        if isinstance(fullname_or_pattern, str):
+            async with self._name_tree_lock.reader_lock:
                 try:
                     selected_tasks = self._name_tree[fullname_or_pattern]
                     return [selected_tasks] if issubclass(type(selected_tasks), Task) else selected_tasks.all_tasks  # type: ignore
@@ -320,6 +340,7 @@ class TaskScheduler:
                     total=set(group.subtasks),
                     remaining=set(group.subtasks),
                 )
+                self._name_tree[group.fullname] = group
                 for t in group.subtasks:
                     self._group_info[t] = group_info
                     if issubclass(type(t), TaskGroup):

@@ -20,6 +20,7 @@ import psutil
 from cattino import settings
 from cattino.constants import TASK_GLOBALS_KEY
 from cattino.comms import Request, Response, start_backend, where
+from cattino.core.path_tree import PathTree
 from cattino.tasks.proc_task import ProcTask
 from cattino.tasks.interface import DeviceRequiredTask, TaskGroup
 from cattino.utils import (
@@ -62,6 +63,13 @@ def print_response(
         echo(no_op_msg)
         echo(failure_msg)
         echo(response.detail)
+
+
+def get_path_tree_str(names: List[str]):
+    tree = PathTree()
+    for name in names:
+        tree.set_node(name, None)
+    return str(tree)
 
 
 class MagicString(click.ParamType):
@@ -225,7 +233,7 @@ def test(name: Optional[str]):
         click.echo(f"{name} does not exist, has not started yet, or has already ended.")
     else:
         if getattr(response, "pid", None):
-            click.echo(f"{name} is running with PID {response.pid}.") # type: ignore
+            click.echo(f"{name} is running with PID {response.pid}.")  # type: ignore
         else:
             click.echo(f"{name} is running.")
 
@@ -389,10 +397,14 @@ def create(
         lambda success: (
             f"{len(success) if success else 0} tasks created successfully."
             if response.ok()
-            else f"{', '.join(success)} created successfully." if success else None
+            else (
+                f"{get_path_tree_str(success)} created successfully."
+                if success
+                else None
+            )
         ),
         lambda failure: (
-            f"{', '.join(failure)} failed to create." if failure else None
+            f"{get_path_tree_str(failure)} failed to create." if failure else None
         ),
     )
 
@@ -500,15 +512,12 @@ def watch(fullname: Optional[str], stream: str):
 @click.argument("name", type=str, required=False)
 def suspend(all: bool, name: Optional[str]):
     """
-    Suspend specific task or group by full name or regex expressions. If the task is running, 
+    Suspend specific task or group by full name or regex expressions. If the task is running,
     it will be terminated forcefully. Note that the end hooks of the task will not be called.
     """
     if not name and not all:
         click.echo("No task name provided.")
         sys.exit(1)
-    if name and all:
-        # convert to raw strings for regex matching
-        name = repr(name)
 
     response = Request.suspend(name, use_regex=all)
     print_response(
@@ -516,13 +525,17 @@ def suspend(all: bool, name: Optional[str]):
         lambda success: (
             f"{len(success) if success else 0} tasks suspended successfully."
             if response.ok()
-            else f"{', '.join(success) } suspended successfully." if success else None
+            else (
+                f"{get_path_tree_str(success) } suspended successfully."
+                if success
+                else None
+            )
         ),
         lambda failure: (
-            f"{', '.join(failure) } failed to suspend." if failure else None
+            f"{get_path_tree_str(failure) } failed to suspend." if failure else None
         ),
         lambda no_op: (
-            f"{', '.join(no_op) } are not in waiting status." if no_op else None
+            f"{get_path_tree_str(no_op) } are not in waiting status." if no_op else None
         ),
     )
 
@@ -544,23 +557,26 @@ def resume(all: bool, name: Optional[str]):
     if not name and not all:
         click.echo("No task name provided.")
         sys.exit(1)
-    if name and all:
-        # convert to raw strings for regex matching
-        name = repr(name)
 
-    response = Request.resume(name)
+    response = Request.resume(name, use_regex=all)
     print_response(
         response,
         lambda success: (
             f"{len(success) if success else 0} tasks resumed successfully."
             if response.ok()
-            else f"{', '.join(success) } resumed successfully." if success else None
+            else (
+                f"{get_path_tree_str(success) } resumed successfully."
+                if success
+                else None
+            )
         ),
         lambda failure: (
-            f"{', '.join(failure) } failed to resume." if failure else None
+            f"{get_path_tree_str(failure) } failed to resume." if failure else None
         ),
         lambda no_op: (
-            f"{', '.join(no_op) } are not in suspended status." if no_op else None
+            f"{get_path_tree_str(no_op) } are not in suspended status."
+            if no_op
+            else None
         ),
     )
 
@@ -583,7 +599,7 @@ def resume(all: bool, name: Optional[str]):
 @click.argument("name", type=str, required=False)
 def kill(all: bool, force: bool, name: Optional[str]):
     """
-    Kill specific task or group by full name or regex expressions. 
+    Kill specific task or group by full name or regex expressions.
     If you want to terminate the backend, use `meow exit` instead.
     """
     if name and "backend" in name:
@@ -595,20 +611,25 @@ def kill(all: bool, force: bool, name: Optional[str]):
     if not name and not all:
         click.echo("No task name provided.")
         sys.exit(1)
-    if name and all:
-        # convert to raw strings for regex matching
-        name = repr(name)
 
-    response = Request.kill(name, force)
+    response = Request.kill(name, force=force, use_regex=all)
     print_response(
         response,
         lambda success: (
             f"{len(success) if success else 0} tasks killed successfully."
             if response.ok()
-            else f"{', '.join(success) } killed successfully." if success else None
+            else (
+                f"{get_path_tree_str(success) } killed successfully."
+                if success
+                else None
+            )
         ),
-        lambda failure: (f"{', '.join(failure) } failed to kill." if failure else None),
-        lambda no_op: (f"{', '.join(no_op) } are not running." if no_op else None),
+        lambda failure: (
+            f"{get_path_tree_str(failure) } failed to kill." if failure else None
+        ),
+        lambda no_op: (
+            f"{get_path_tree_str(no_op) } are not running." if no_op else None
+        ),
     )
 
 
@@ -634,20 +655,21 @@ def remove(all: bool, name: Optional[str]):
     if not name and not all:
         click.echo("No task name provided.")
         sys.exit(1)
-    if name and all:
-        # convert to raw strings for regex matching
-        name = repr(name)
 
-    response = Request.remove(name)
+    response = Request.remove(name, use_regex=all)
     print_response(
         response,
         lambda success: (
             f"{len(success) if success else 0} tasks removed successfully."
             if response.ok()
-            else f"{', '.join(success)} removed successfully." if success else None
+            else (
+                f"{get_path_tree_str(success)} removed successfully."
+                if success
+                else None
+            )
         ),
         lambda failure: (
-            f"{', '.join(failure)} failed to remove." if failure else None
+            f"{get_path_tree_str(failure)} failed to remove." if failure else None
         ),
     )
 
@@ -817,7 +839,7 @@ def clean(
     cattino_home = get_cattino_home()
     response = Request.test()
     current_cache_dir = (
-        get_cache_dir("backend", response.pid) if hasattr(response, "pid") else None # type: ignore
+        get_cache_dir("backend", response.pid) if hasattr(response, "pid") else None  # type: ignore
     )
 
     def remove_cache(path: str, force: bool = False):

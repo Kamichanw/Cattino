@@ -21,6 +21,11 @@ class Node(Generic[T]):
     children: Dict[str, "Node"] = field(default_factory=dict)
     parent: Optional["Node"] = None
 
+    def __str__(self) -> str:
+        return (
+            f"{self.name}/{{{', '.join(self.children)}}}" if self.children else self.name
+        )
+
 
 class PathTree(Generic[T]):
     """
@@ -55,7 +60,7 @@ class PathTree(Generic[T]):
                 current.children[part] = Node(
                     name=part, parent=current if current != self._root else None
                 )
-                self.nodes[self.sep.join(parts[:i + 1])] = current.children[part]
+                self.nodes[self.sep.join(parts[: i + 1])] = current.children[part]
             current = current.children[part]
         current.data = value
 
@@ -85,33 +90,17 @@ class PathTree(Generic[T]):
         return self.nodes[path]
 
     def __getitem__(self, path: str) -> Optional[T]:
-        """
-        Retrieves the value of a node from the tree based on the given path.
-        Args:
-            path (str): The path from the root to the node, separated by the specified separator.
-        Returns:
-            T: The value found at the specified path.
-        """
         return self.nodes[path].data
 
     def __setitem__(self, path: str, value: T):
-        """
-        Sets the value of a node in the tree based on the given path.
-
-        Args:
-            path (str): The path from the root to the node, separated by the specified separator.
-            value (T): The value to set at the node.
-        """
         self.set_node(path, value)
 
     def __contains__(self, path: str) -> bool:
-        """
-        Checks if a node exists in the tree based on the given path or attribute.
-
-        Args:
-            path (str): The path from the root to the node, separated by the specified separator.
-
-        Returns:
-            bool: True if the node exists, False otherwise.
-        """
         return path in self.nodes
+
+    def __str__(self) -> str:
+        return (
+            ", ".join([str(node) for node in self._root.children.values()])
+            if self._root.children
+            else ""
+        )

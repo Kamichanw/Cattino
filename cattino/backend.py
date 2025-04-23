@@ -1,5 +1,4 @@
 import asyncio
-import atexit
 import logging
 import re
 import click
@@ -91,10 +90,12 @@ async def lifespan(app: FastAPI):
                     if (
                         settings.shutdown_on_complete
                         and app.state.redirect_output  # if backend is running in background
-                        and len(await task_scheduler.pending_tasks) == 0
+                        and len(task_scheduler._executed_tasks) != 0
+                        and not await task_scheduler.is_running
                     ):
                         logger.info("All tasks are done, shutting down...")
                         shutdown_event.set()
+                        os.kill(os.getpid(), signal.SIGINT)
                     else:
                         await asyncio.sleep(5)
             except Exception as e:
@@ -136,7 +137,6 @@ async def process_tasks(
     assert (
         is_take_task_func or is_take_sequence_func
     ), "func must take a task or a sequence of tasks as the first argument"
-
     tasks = (
         await scheduler.get_tasks(re.compile(name) if use_regex else name)
         if name
@@ -150,7 +150,7 @@ async def process_tasks(
 
     success, no_op, failure, exception = [], [], [], []
     allow_status = allow_status or list(TaskStatus)
-    if is_take_sequence_func:
+    if not is_take_sequence_func:
         for task in tasks:
             if task.status in allow_status:
                 try:
@@ -163,16 +163,19 @@ async def process_tasks(
             else:
                 no_op.append(task.fullname)
     else:
-        try:
-            await func(tasks, **func_kwargs)
-            success.extend(tasks)
-        except Exception as e:
-            logger.exception(e)
-            failure.extend(tasks)
-            exception.append(f"Some tasks failed: {str(e)}")
+        no_op.extend([t.fullname for t in tasks if t.status not in allow_status])
+        if tasks := [t for t in tasks if t.status in allow_status]:
+            try:
+                await func(tasks, **func_kwargs)
+                success.extend([t.fullname for t in tasks])
+            except Exception as e:
+                logger.exception(e)
+                failure.extend([t.fullname for t in tasks])
+                exception.append(f"Some tasks failed: {str(e)}")
 
-    detail = "\n".join(exception)
-    return TaskResponse(success=success, no_op=no_op, failure=failure, detail=detail)
+    return TaskResponse(
+        success=success, no_op=no_op, failure=failure, detail="\n".join(exception)
+    )
 
 
 def load_from_message(message: UploadFile = File(...), request: fastapi.Request = None):  # type: ignore

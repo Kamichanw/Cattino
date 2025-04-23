@@ -256,18 +256,21 @@ class TaskResponse(Response):
         )
 
 
-def where() -> Optional[str]:
+def where() -> str:
     """
-    Get cache dirname of current running backend. If the backend is not runnning,
-    return None.
+    Get cache dirname of current running backend. Raise an error if the backend is not running.
     """
+    if os.path.isdir(get_cache_dir("backend")):
+        # if where is called in backend, return directly
+        return get_cache_dir("")
+
     response = Request.test()
     if response.error():
         raise RuntimeError(
             f"Failed to query cache dirname of current backend: {response.detail}"
         )
 
-    return get_cache_dir("", response.pid) if getattr(response, "pid", None) else None # type: ignore
+    return get_cache_dir("", response.pid)  # type: ignore
 
 
 def start_backend(

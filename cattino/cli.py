@@ -1,3 +1,4 @@
+import builtins
 import gettext
 import itertools
 import os
@@ -10,12 +11,15 @@ import sys
 import threading
 import time
 import click
+import psutil
+import rich
 
+from rich.table import Table
+from rich.console import Console
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, List, Literal, Optional, Sequence, Tuple
 
-import psutil
 
 from cattino import settings
 from cattino.constants import TASK_GLOBALS_KEY
@@ -196,7 +200,7 @@ def main():
 )
 def run(host: Optional[str], port: Optional[int]):
     """
-    Start the backend.
+    Start the backend in foreground.
     """
     if not Request.test().ok():
         start_backend(blocking=True, host=host, port=port)
@@ -328,7 +332,7 @@ def create(
             else:
                 list_args.append(parse_list(arg))
 
-        extra_args = list(itertools.product(*list_args))
+        extra_args = builtins.list(itertools.product(*list_args))
     else:
         extra_args = [args]
 
@@ -350,7 +354,7 @@ def create(
         original_argv = sys.argv
         tasks = []
         for ex_args in extra_args:
-            sys.argv = [input] + list(ex_args)
+            sys.argv = [input] + builtins.list(ex_args)
             task_list = runpy.run_path(input, run_name="__main__").get(TASK_GLOBALS_KEY)
             if not task_list:
                 click.echo(
@@ -367,7 +371,9 @@ def create(
     # case 2: input is a command string
     else:
         try:
-            cmds = [shlex.split(input) + list(ex_args) for ex_args in extra_args]
+            cmds = [
+                shlex.split(input) + builtins.list(ex_args) for ex_args in extra_args
+            ]
         except ValueError as e:
             click.echo(f"Invalid command string: {e}")
             sys.exit(1)
@@ -410,12 +416,34 @@ def create(
 
 
 @main.command()
-@click.argument("name", nargs=-1, type=str, required=False)
-def monitor(name):
+@click.option(
+    "--filter",
+    type=MagicString(),
+    required=False,
+    help="Filter tasks by a python expression that accept a argument 'task'.",
+)
+@click.argument("attrs", nargs=-1, type=str, required=False)
+def list(filter: Optional[str], attrs: Tuple[str]):
     """
-    List all tasks.
+    List specified attributes of tasks that match the given condition.
     """
-    click.echo(name)
+    response = Request.list(filter, attrs)
+    if response.error():
+        click.echo(response.detail)
+        sys.exit(1)
+
+    if not (results := response.results):  # type: ignore
+        click.echo("No tasks found.")
+        sys.exit(0)
+
+    console = Console()
+    table = Table("fullname", *attrs)
+
+    for result in results:
+        table.add_row(result["name"], *[str(result[attr] or "-") for attr in attrs])
+
+    with console.pager(styles=True, links=True):
+        console.print(table)
 
 
 @main.command()
@@ -432,8 +460,8 @@ def watch(fullname: Optional[str], stream: str):
     Redirect a output stream of backend or a specific task to terminal.
     If no task name is provided, the backend's output stream will be redirected.
     """
-    backend_response = Request.test()
-    if backend_response.error():
+
+    if (backend_response := Request.test()).error():
         click.echo(backend_response.detail)
         sys.exit(1)
     backend_pid = getattr(backend_response, "pid")
@@ -484,8 +512,7 @@ def watch(fullname: Optional[str], stream: str):
         # the progress bar followed by a newline. ignoring this newline allows proper refreshing.
         cache_nl = False
         while not is_running.is_set():
-            line = f.readline()
-            if line == "\n":
+            if (line := f.readline()) == "\n":
                 cache_nl = True
             elif line:
                 if PROGRESS_BAR_PATTERN.search(line):
@@ -700,8 +727,7 @@ def exit(force: bool):
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
     else:
-        response = Request.exit()
-        if response.error():
+        if (response := Request.exit()).error():
             click.echo(response.detail)
             sys.exit(1)
 
@@ -711,9 +737,9 @@ def exit(force: bool):
 def retrieve_setting_help():
     """
     Retrieve the documentation for all settings with the following format:
-    - `setting_name` (`setting_type`): `setting_description`
+    - `setting-name` (`setting_type`): `setting_description`
     """
-    keys = list(settings.default_settings.keys())
+    keys = builtins.list(settings.default_settings.keys())
     types = [settings.get_type(key).__name__ for key in keys]
     descriptions = [settings.get_description(key) for key in keys]
     return "\n".join(
@@ -723,7 +749,8 @@ def retrieve_setting_help():
 
 
 set_docstring = f"""
-Change the settings of cattino.
+Change the settings of cattino or an attribute of a task.
+To set the attribute of a task, use the format `task_fullname.attr_name`.
 
 \b
 Available settings:
@@ -733,70 +760,40 @@ Available settings:
 
 
 @main.command(help=set_docstring)
-@click.option(
-    "--reset",
-    "-r",
-    is_flag=True,
-    default=False,
-    help="Reset a specific setting or all settings to default values.",
-)
-@click.option(
-    "--show",
-    "-s",
-    is_flag=True,
-    default=False,
-    help="Show all current settings.",
-)
-@click.argument("setting", type=str, required=False)
-@click.argument("value", type=MagicString(), required=False)
-def set(reset: bool, show: bool, setting: Optional[str], value: Optional[str]):
-    if show:
-        if reset or setting or value:
-            click.echo(
-                "--show/-s option cannot be used with other options or arguments"
-            )
+@click.argument("setting_or_task_attr", type=str)
+@click.argument("value", type=MagicString())
+def set(setting_or_task_attr: str, value: str):
+    if "." in setting_or_task_attr:
+        name, attr = setting_or_task_attr.rsplit(".", 1)
+        if (response := Request.set_task_attr(name, attr, value)).error():
+            click.echo(response.detail)
             sys.exit(1)
-        click.echo(
-            "\n".join(
-                f"{k.replace('_', '-')}: {v}"
-                for k, v in sorted(settings.all_settings.items())
-            )
-        )
-        sys.exit(0)
-
-    key = setting.replace("-", "_") if setting else None
-    if reset and setting is None:
-        settings.clear()
-        click.echo("All settings reset to default values.")
-        sys.exit(0)
-
-    if key not in settings.default_settings:
-        click.echo(
-            f"Invalid setting: {setting}. Use `meow set --help` to see available settings."
-        )
-        sys.exit(1)
-
-    if reset:
-        if value:
-            click.echo("--reset/-r option cannot be used with a value. ")
-            sys.exit(1)
-        value = settings.default_settings[key]
+        click.echo(f"{name}.{attr} set to {value} successfully.")
     else:
+        setting = setting_or_task_attr
+        key = setting.replace("-", "_")
+
+        if key not in settings.default_settings:
+            click.echo(
+                f"Invalid setting: {setting}. Use `meow set --help` to see available settings."
+            )
+            sys.exit(1)
+
         if value is None:
             click.echo(
                 "Value is required. Use `meow set --help` to see available settings."
             )
             sys.exit(1)
 
-    try:
-        assert key is not None
-        old_value = settings.all_settings[key]
-        setattr(settings, key, value)
-        if settings.all_settings[key] != old_value:
-            click.echo(f"Setting {setting} updated to {value}.")
-    except Exception as e:
-        click.echo(f"Error setting {setting}: {e}")
-        sys.exit(1)
+        try:
+            assert key is not None
+            old_value = settings.all_settings[key]
+            setattr(settings, key, value)
+            if settings.all_settings[key] != old_value:
+                click.echo(f"Setting {setting} updated to {value}.")
+        except Exception as e:
+            click.echo(f"Error setting {setting}: {e}")
+            sys.exit(1)
 
 
 @main.command()

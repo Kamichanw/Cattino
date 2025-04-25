@@ -1,10 +1,11 @@
+from functools import wraps
 import os
 import time
 import dill
 import sys
 import subprocess
 from pydantic import BaseModel, ConfigDict
-from typing import Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence, Tuple
 import requests
 from fastapi import status
 
@@ -31,148 +32,6 @@ class Message(BaseModel):
                 added as attributes of the message object.
         """
         super().__init__(**kwargs)
-
-
-def send_request(
-    endpoint: str,
-    expected_response_cls: type,
-    request: Optional["Request"] = None,
-    api: str = "post",
-    headers: Optional[Dict[str, str]] = None,
-):
-    """
-    Post a request to the backend.
-    """
-    try:
-        send_fn = getattr(requests.api, api, None)
-        url = f"http://{settings.host}:{settings.port}/{endpoint}"
-        if send_fn is None:
-            raise ValueError(f"Invalid API method: {api}")
-        response: requests.Response = send_fn(
-            url,
-            files=(
-                {"message": ("message.msg", dill.dumps(request, recurse=True))}
-                if request
-                else None
-            ),
-            headers=headers,
-            timeout=settings.timeout if settings.timeout > 0 else None,
-        )
-        response_json: dict = response.json()
-        response_json.setdefault("status_code", response.status_code)
-        return expected_response_cls(**response_json)
-    except requests.exceptions.ConnectionError:
-        return Response(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Backend is not running.",
-        )
-    except requests.exceptions.Timeout:
-        return Response(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Backend is not responding. This may be due to an internal error. Please check the "
-            "backend logs for details.",
-        )
-    except Exception as e:
-        return Response(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
-
-
-class Request(Message):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    @staticmethod
-    def create(
-        tasks: Sequence[AbstractTask],
-        extra_paths: Optional[Sequence[str]] = None,
-    ):
-        """Create a message for creating tasks."""
-        if extra_paths:
-            headers = {"X-Extra-Path": ",".join(extra_paths)}
-        else:
-            headers = None
-        return send_request(
-            "create", TaskResponse, Request(tasks=tasks), headers=headers
-        )
-
-    @staticmethod
-    def kill(
-        name: Optional[str],
-        force: bool = False,
-        use_regex: bool = False,
-    ):
-        """
-        Kill task.
-
-        Args:
-            name (str, *optional*): The full name of task to kill. If None, kill all tasks.
-            force (bool): Whether to force kill the task. Default is False.
-            use_regex (bool): Whether to match task names using regex. Default is False.
-        """
-        return send_request(
-            "kill",
-            TaskResponse,
-            Request(name=name, force=force, use_regex=use_regex),
-        )
-
-    @staticmethod
-    def suspend(name: Optional[str], use_regex: bool = False):
-        """Suspend task"""
-        return send_request(
-            "suspend",
-            TaskResponse,
-            Request(name=name, use_regex=use_regex),
-        )
-
-    @staticmethod
-    def resume(name: Optional[str], use_regex: bool = False):
-        """Resume task"""
-        return send_request(
-            "resume",
-            TaskResponse,
-            Request(name=name, use_regex=use_regex),
-        )
-
-    @staticmethod
-    def remove(name: Optional[str], use_regex: bool = False):
-        """Remove task"""
-        return send_request(
-            "remove",
-            TaskResponse,
-            Request(name=name, use_regex=use_regex),
-        )
-
-    @staticmethod
-    def exit():
-        """Exit backend"""
-        return send_request("exit", Response)
-
-    @staticmethod
-    def status():
-        """Get backend status"""
-        return send_request("status", Response)
-
-    @staticmethod
-    def monitor():
-        """Monitor backend"""
-        return send_request("monitor", Response)
-
-    @staticmethod
-    def test(name: Optional[str] = None):
-        """
-        Query the backend or a specific task whether it is running.
-
-        Args:
-            name (str, *optional*): The name of the task to query. If None or "backend", it will query the backend.
-
-        Returns:
-            Response: A response object containing the status code and an optional PID.
-                1. If no target is found, the status code will be 404.
-                2. If the target is not running, the status code will be 202.
-                3. If the target is running, the status code will be 200 and the PID will be returned (if possible).
-        """
-        return send_request("test", Response, Request(name=name))
 
 
 class Response(Message):
@@ -254,6 +113,278 @@ class TaskResponse(Response):
             failure=failure,
             **kwargs,
         )
+
+
+def communicate(
+    endpoint: str,
+    expected_response_cls: type = Response,
+):
+    """
+    Decorator to send a request to the backend within a context.
+    This decorator injects the target URL into the function and handles the response.
+    The response is expected to be a requests.Response object.
+    """
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            response = None
+            try:
+                url = f"http://{settings.host}:{settings.port}/{endpoint}"
+
+                response = func(*args, **kwargs, url=url)
+
+                if not isinstance(response, requests.Response):
+                    raise TypeError(
+                        f"Expected a `requests.Response` object, but got {type(response)}"
+                    )
+
+                response_json: dict = response.json()
+                response_json.setdefault("status_code", response.status_code)
+
+                return expected_response_cls(**response_json)
+
+            except requests.exceptions.ConnectionError:
+                return Response(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Backend is not running.",
+                )
+            except requests.exceptions.Timeout:
+                return Response(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Backend is not responding. This may be due to an internal error. Please check the "
+                    "backend logs for details.",
+                )
+            except requests.exceptions.RequestException as e:
+                return Response(
+                    status_code=(
+                        response.status_code
+                        if response
+                        else status.HTTP_500_INTERNAL_SERVER_ERROR
+                    ),
+                    detail=str(e),
+                )
+
+        return wrapper
+
+    return decorator
+
+
+def post_request(request: Optional["Request"] = None, **kwargs):
+    """
+    Sends a POST request to the specified URL with the given request data.
+
+    Args:
+        request (Request, *optional*): The request data to be sent.
+
+    Returns:
+        requests.Response: The response from the POST request.
+    """
+    return requests.post(
+        files=(
+            {
+                "message": (
+                    "message.msg",
+                    dill.dumps(request, recurse=True),
+                )
+            }
+            if request
+            else None
+        ),
+        timeout=settings.timeout if settings.timeout > 0 else None,
+        **kwargs,
+    )
+
+
+def get_request(url: str, **kwargs):
+    """
+    Sends a GET request to the specified URL with optional parameters.
+
+    Args:
+        url (str): The URL to send the GET request to.
+        **kwargs: Additional keyword arguments for the request.
+
+    Returns:
+        requests.Response: The response from the GET request.
+    """
+    return requests.get(
+        url,
+        timeout=settings.timeout if settings.timeout > 0 else None,
+        **kwargs,
+    )
+
+
+class Request(Message):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    @communicate("create", TaskResponse)
+    @staticmethod
+    def create(
+        tasks: Sequence[AbstractTask],
+        extra_paths: Optional[Sequence[str]] = None,
+        **kwargs,
+    ) -> TaskResponse:
+        """
+        Create task.
+
+        Args:
+            tasks (sequence of AbstractTask): The tasks to be created.
+            extra_paths (sequence of str, *optional*): Extra paths for backend when loading task objects.
+            **kwargs: Additional keyword arguments for the request.
+
+        Returns:
+            TaskResponse: A response object containing the status code and details of the task creation.
+        """
+        if extra_paths:
+            headers = {"X-Extra-Path": ",".join(extra_paths)}
+        else:
+            headers = None
+
+        return post_request(  # type: ignore
+            Request(tasks=tasks),
+            headers=headers,
+            **kwargs,
+        )
+
+    @communicate("kill", TaskResponse)
+    @staticmethod
+    def kill(
+        name: Optional[str], force: bool = False, use_regex: bool = False, **kwargs
+    ) -> TaskResponse:
+        """
+        Kill specified tasks by name or regex expression. If no name is provided, all tasks will be killed.
+
+        Args:
+            name (str, *optional*): The full name of task to kill. If None, kill all tasks.
+            force (bool): Whether to force kill the task. Default is False.
+            use_regex (bool): Whether to match task names using regex. Default is False.
+            **kwargs: Additional keyword arguments for the request.
+
+        Returns:
+            TaskResponse: A response object containing the status code and details of the task killing.
+        """
+        return post_request(  # type: ignore
+            Request(name=name, force=force, use_regex=use_regex), **kwargs
+        )
+
+    @communicate("list")
+    @staticmethod
+    def list(filter: Optional[str], attrs: Tuple[str], **kwargs) -> Response:
+        """
+        Query specified attributes of tasks that match the given condition.
+
+        Args:
+            filter (str, *optional*): A filter condition to apply to the task query.
+            attrs (Tuple[str]): The attributes to retrieve for the matching tasks.
+            **kwargs: Additional keyword arguments for the request.
+
+        Returns:
+            Response: A response object containing the status code and details of the task query.
+                It also contains a field `results` that is a list of dictionaries, each containing the
+                specified attributes of a task and its name.
+        """
+        return get_request(**kwargs, params={"filter": filter, "attrs": " ".join(attrs)})  # type: ignore
+
+    @communicate("set", Response)
+    @staticmethod
+    def set_task_attr(name: str, attr: str, value: str, **kwargs) -> Response:
+        """
+        Set a specific attribute of a task to a new value.
+
+        Args:
+            name (str): The name of the task to modify.
+            attr (str): The attribute to set.
+            value (str): The new value for the attribute.
+
+        Returns:
+            Response: A response object containing the status code and details of the task modification.
+        """
+        return post_request(
+            Request(name=name, attr=attr, value=value), **kwargs  # type: ignore
+        )
+
+    @communicate("suspend", TaskResponse)
+    @staticmethod
+    def suspend(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
+        """
+        Suspend tasks by name or regex expression. If no name is provided, all tasks will be suspended.
+
+        Args:
+            name (str, *optional*): The full name of task to suspend. If None, suspend all tasks.
+            use_regex (bool): Whether to match task names using regex. Default is False.
+            **kwargs: Additional keyword arguments for the request.
+
+        Returns:
+            TaskResponse: A response object containing the status code and details of the task suspension.
+        """
+        return post_request(Request(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+
+    @communicate("resume", TaskResponse)
+    @staticmethod
+    def resume(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
+        """
+        Resume tasks by name or regex expression. If no name is provided, all tasks will be resumed.
+
+        Args:
+            name (str, *optional*): The full name of task to resume. If None, resume all tasks.
+            use_regex (bool): Whether to match task names using regex. Default is False.
+            **kwargs: Additional keyword arguments for the request.
+
+        Returns:
+            TaskResponse: A response object containing the status code and details of the task resumption.
+        """
+        return post_request(Request(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+
+    @communicate("remove", TaskResponse)
+    @staticmethod
+    def remove(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
+        """
+        Remove tasks by name or regex expression. If no name is provided, all tasks will be removed.
+
+        Args:
+            name (str, *optional*): The full name of task to remove. If None, remove all tasks.
+            use_regex (bool): Whether to match task names using regex. Default is False.
+            **kwargs: Additional keyword arguments for the request.
+
+        Returns:
+            TaskResponse: A response object containing the status code and details of the task removal.
+        """
+        return post_request(Request(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+
+    @communicate("exit")
+    @staticmethod
+    def exit(**kwargs) -> Response:
+        """
+        Exit backend. This will remove all tasks forcefully and exit the backend process.
+
+        Args:
+            **kwargs: Additional keyword arguments for the request.
+
+        Returns:
+            Response: A response object containing the status code and details of the exit operation.
+        """
+        return post_request(**kwargs)  # type: ignore
+
+    @communicate("test")
+    @staticmethod
+    def test(name: Optional[str] = None, **kwargs) -> Response:
+        """
+        Query the backend or a specific task whether it is running.
+
+        Args:
+            name (str, *optional*): The name of the task to query. If None or "backend", it will query the backend.
+
+        Returns:
+            Response: A response object containing the status code and an optional PID.
+                1. If no target is found, the status code will be 404.
+                2. If the target is not running, the status code will be 202.
+                3. If the target is running, the status code will be 200 and the PID will be returned (if possible).
+        """
+        if name is None or name == "backend":
+            return get_request(kwargs["url"])  # type: ignore
+        else:
+            return get_request(f"{kwargs['url']}/{name}")  # type: ignore
 
 
 def where() -> str:

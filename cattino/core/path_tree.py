@@ -17,14 +17,21 @@ class Node(Generic[T]):
     """
 
     name: str
+    sep: str
     data: Optional[T] = None
     children: Dict[str, "Node"] = field(default_factory=dict)
     parent: Optional["Node"] = None
 
     def __str__(self) -> str:
-        return (
-            f"{self.name}/{{{', '.join(self.children)}}}" if self.children else self.name
-        )
+        """
+        A string representation of the node, including its name and children.
+        """
+        if self.children:
+            if len(self.children) > 1:
+                return f"{self.name}{self.sep}{{{', '.join(self.children)}}}"
+            else:
+                return f"{self.name}{self.sep}{self.children}"
+        return self.name
 
 
 class PathTree(Generic[T]):
@@ -33,16 +40,26 @@ class PathTree(Generic[T]):
     based on a name path, separated by given separator.
     """
 
-    def __init__(self, sep="/"):
+    def __init__(self, sep: str = "/"):
         """
         Initializes a PathTree.
 
         Args:
             sep (str): The separator used for the path.
         """
-        self._root = Node(name="root")
+        self._root = Node(name="root", sep=sep)
         self.nodes: Dict[str, Node] = {}
         self.sep: str = sep
+    
+    @property
+    def roots(self) -> Dict[str, Node]:
+        """
+        Returns the roots of the tree.
+
+        Returns:
+            Dict[str, Node]: A dictionary of root children nodes.
+        """
+        return self._root.children
 
     def set_node(self, path: str, value: T):
         """
@@ -58,7 +75,9 @@ class PathTree(Generic[T]):
         for i, part in enumerate(parts):
             if part not in current.children:
                 current.children[part] = Node(
-                    name=part, parent=current if current != self._root else None
+                    name=part,
+                    sep=self.sep,
+                    parent=current if current != self._root else None,
                 )
                 self.nodes[self.sep.join(parts[: i + 1])] = current.children[part]
             current = current.children[part]

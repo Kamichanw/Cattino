@@ -5,9 +5,10 @@ import string
 import time
 import enum
 
-from typing import List, Literal, Optional, Sequence, Set, Union, TYPE_CHECKING
+from typing import Dict, List, Literal, Optional, Sequence, Set, Union, TYPE_CHECKING
 from collections import Counter
 
+from cattino.core.path_tree import PathTree
 from cattino.utils import is_valid_filename
 from cattino.core.device_allocator import DeviceAllocator
 
@@ -17,15 +18,31 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
+    def _generate_next_value_(name, start, count, last_values):
+        return name
+
     MultiStatus = enum.auto()  # only used for group
+    Cancelled = (
+        enum.auto()
+    )  # The task has been cancelled and will not be scheduled for execution.
     Suspended = enum.auto()  # The task will be delayed until it is woken up.
     Waiting = enum.auto()
     Running = enum.auto()
     Done = enum.auto()  # The task has finished successfully
     Failed = enum.auto()  # The task has finished with an error
 
+    def __str__(self):
+        return self.name
+
+    def __eq__(self, value: object) -> bool:
+        return (isinstance(value, TaskStatus) and self.name == value.name) or (
+            isinstance(value, str) and self.name == value.capitalize()
+        )
+
 
 class AbstractTask(ABC):
+    SETTABLE_ATTRS = ["name"]
+
     def __init__(self, name: str):
         self.name = name
         self._group: Optional["TaskGroup"] = None
@@ -85,12 +102,10 @@ class AbstractTask(ABC):
     @abstractmethod
     def terminate(self, force: bool = False) -> None: ...
 
-    @property
-    @abstractmethod
-    def is_cancelled(self) -> bool: ...
-
 
 class Task(AbstractTask):
+    SETTABLE_ATTRS = AbstractTask.SETTABLE_ATTRS + ["priority"]
+
     def __init__(self, task_name: Optional[str] = None, priority: int = 0):
         """
         Initialize an abstract backend task.
@@ -111,7 +126,6 @@ class Task(AbstractTask):
 
         self.create_time = time.time_ns()
         self.priority = priority
-        self._is_cancelled = False
 
     @abstractmethod
     def start(self) -> None:
@@ -133,37 +147,32 @@ class Task(AbstractTask):
             # do your own logic here
             ...
 
+    @abstractmethod
     def cancel(self) -> None:
         """
-        Cancel a task that hasn't started yet. Once the task is cancelled, it
-        won't be scheduled for execution.
+        Cancel a task that hasn't started or done yet. If the task is running, it should be terminated.
+        Once the task is cancelled, it won't be scheduled for execution.
         """
-        if self.status in [
-            TaskStatus.Done,
-            TaskStatus.Failed,
-            TaskStatus.Running,
-        ]:
+        if self.status in [TaskStatus.Done, TaskStatus.Failed]:
             return
-
-        self._is_cancelled = True
-
-    @property
-    def is_cancelled(self) -> bool:
-        """
-        Check if the task is cancelled.
-        """
-        return self._is_cancelled
+        if self.status == TaskStatus.Running:
+            self.terminate()
+        # set status to Cancelled
+        ...
 
     @abstractmethod
     def suspend(self) -> None:
         """
-        Postpone a task. If the task is currently running, terminate it and set its status to pending.
+        Postpone a task. If the task is currently running, cancel it and set its status to pending.
         """
-        if self.status in [TaskStatus.Done, TaskStatus.Failed, TaskStatus.Suspended]:
+        if self.status in [
+            TaskStatus.Done,
+            TaskStatus.Failed,
+            TaskStatus.Suspended,
+            TaskStatus.Cancelled,
+        ]:
             return
-        if self.status == TaskStatus.Running:
-            self.terminate()
-
+        self.cancel()
         # set status to Pending
         ...
 
@@ -175,11 +184,12 @@ class Task(AbstractTask):
         guarantee that all inner variables are reset to the initial state.
 
         Note that only cattino can call this method when the task has been executed.
-        CLI users should use the `resume` command to a suspended task.
+        CLI users should use the `resume` command to a suspended or cancelled task.
         """
-        if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:
-            # do your own logic here, set status to Waiting
-            ...
+        if self.status in [TaskStatus.Running, TaskStatus.Waiting]:
+            return
+        # do your own logic here, set status to Waiting
+        ...
 
     @abstractmethod
     def terminate(self, force: bool = False) -> None:
@@ -221,6 +231,11 @@ class Task(AbstractTask):
 
 
 class DeviceRequiredTask(Task):
+    SETTABLE_ATTRS = Task.SETTABLE_ATTRS + [
+        "requires_memory_per_device",
+        "min_devices",
+    ]
+
     def __init__(
         self,
         task_name: Optional[str] = None,
@@ -242,8 +257,42 @@ class DeviceRequiredTask(Task):
         # this property will be set by the allocator
         self._assigned_device_indices: Optional[List[int]] = None
 
-        self.requires_memory_per_device = requires_memory_per_device
-        self.min_devices = min_devices
+        self._requires_memory_per_device = requires_memory_per_device
+        self._min_devices = min_devices
+
+    @property
+    def requires_memory_per_device(self) -> int:
+        """
+        Get the memory required per device.
+        """
+        return self._requires_memory_per_device
+
+    @requires_memory_per_device.setter
+    def requires_memory_per_device(self, value: int) -> None:
+        """
+        Set the memory required per device.
+        """
+        if self.status == TaskStatus.Running:
+            raise RuntimeError(
+                "Cannot set requires_memory_per_device while the task is running."
+            )
+        self._requires_memory_per_device = value
+
+    @property
+    def min_devices(self) -> int:
+        """
+        Get the minimum number of devices required for the task.
+        """
+        return self._min_devices
+
+    @min_devices.setter
+    def min_devices(self, value: int) -> None:
+        """
+        Set the minimum number of devices required for the task.
+        """
+        if self.status == TaskStatus.Running:
+            raise RuntimeError("Cannot set min_devices while the task is running.")
+        self._min_devices = value
 
     @property
     def assigned_device_indices(self) -> Optional[List[int]]:
@@ -396,18 +445,74 @@ class TaskGroup(AbstractTask):
 
     @property
     def status(self):
+        """
+        Get the status of the task group. If all subtasks have the same status, return that status.
+        Otherwise, return TaskStatus.MultiStatus.
+        """
         return (
             self.subtasks[0].status
             if all(self.subtasks[0].status == t.status for t in self.subtasks)
             else TaskStatus.MultiStatus
         )
 
-    @property
-    def is_cancelled(self) -> bool:
+    @classmethod
+    def from_name_task_pairs(
+        cls,
+        name_task_pairs: Sequence[tuple[str, AbstractTask]],
+        group_types: Optional[Dict[str, type["TaskGroup"]]] = None,
+        execute_strategy: Union[
+            Literal["sequential", "parallel"], "TaskGraph"
+        ] = "parallel",
+        group_name: Optional[str] = None,
+    ) -> "TaskGroup":
         """
-        Check if the task group is cancelled.
+        Create a TaskGroup from name-task pairs.
+
+        Args:
+            name_task_pairs (Sequence[tuple[str, AbstractTask]]): A sequence of tuples containing task names and tasks.
+            group_types (Optional[Dict[str, type[TaskGroup]]], *optional*): A dictionary mapping group names to their respective TaskGroup types.
+                For those unspecified, the current TaskGroup type will be used.
+                Defaults to None.
+            execute_strategy (Union[str, TaskGraph], *optional*): The execution strategy for the group,
+                either 'sequential', 'parallel', or a TaskGraph object. Defaults to "parallel".
+            group_name (Optional[str], *optional*): The name of the task group. If not provided,
+                it will be set to 'group_of_{name of a task in the group}'.
+                Defaults to None.
+        Returns:
+            TaskGroup: A TaskGroup based on the provided name-task pairs.
+
         """
-        return all(subtask.is_cancelled for subtask in self.subtasks)
+        if group_types is None:
+            group_types = {}
+
+        tree = PathTree[AbstractTask]()
+        for name, task in name_task_pairs:
+            tree.set_node(name, task)
+
+        def build_group(node):
+            subtasks = []
+            for name, child in node.children.items():
+                if child.children:
+                    subtasks.append(build_group(child))
+                else:
+                    if child.data is None or not issubclass(
+                        type(child.data), AbstractTask
+                    ):
+                        raise ValueError(
+                            f"Invalid task '{name}' in group '{node.name}'."
+                        )
+                    subtasks.append(child.data)
+            group_cls = group_types.get(node.name, cls)
+            return group_cls(
+                subtasks,
+                group_name=node.name,
+            )
+
+        return cls(
+            [build_group(root) for root in tree.roots.values()],
+            execute_strategy=execute_strategy,
+            group_name=group_name,
+        )
 
     def __iter__(self):
         return iter(self.subtasks)

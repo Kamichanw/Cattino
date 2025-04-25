@@ -10,7 +10,6 @@ from typing import (
     Dict,
     Sequence,
     Optional,
-    Union,
     overload,
 )
 
@@ -250,6 +249,16 @@ class TaskScheduler:
             f"fullname must be str or re.Pattern, but got {type(fullname_or_pattern)}"
         )
 
+    async def get_task_object(self, fullname: str) -> Optional[AbstractTask]:
+        """
+        Get task object by its fullname.
+        """
+        async with self._name_tree_lock.reader_lock:
+            try:
+                return self._name_tree[fullname]
+            except KeyError:
+                return None
+
     @property
     async def running_tasks(self) -> List[Task]:
         """
@@ -282,15 +291,6 @@ class TaskScheduler:
         async with self._executed_tasks_lock.reader_lock:
             async with self._pending_tasks_lock.reader_lock:
                 return list(set(self._executed_tasks + self._pending_tasks.tasks))
-
-    async def get_task_status(self, query_keys: List[str]) -> List[List[Optional[Any]]]:
-        """
-        Get the status of all tasks based on the query keys.
-        """
-        return [
-            [getattr(task, key, None) for key in query_keys]
-            for task in await self.all_tasks
-        ]
 
     async def dispatch(
         self,
@@ -351,6 +351,7 @@ class TaskScheduler:
                             logger.info(
                                 f"Task {t.name} already exists, skipping dispatch."
                             )
+                            continue
                     self._name_tree[t.fullname] = t
 
             async with self._name_tree_lock.writer_lock:
@@ -369,15 +370,19 @@ class TaskScheduler:
 
     async def resume(self, task: Task) -> None:
         task.resume()
-
-    async def suspend(self, task: Task) -> None:
-        task.suspend()
-        if task.status == TaskStatus.Suspended:
+    
+    async def cancel(self, task: Task) -> None:
+        task.cancel()
+        if task.status == TaskStatus.Cancelled:
             async with self._executed_tasks_lock.writer_lock:
                 if task in self._executed_tasks:
                     self._executed_tasks.remove(task)
             async with self._group_info_lock:
                 self._group_info[task].remaining.add(task)
+
+    async def suspend(self, task: Task) -> None:
+        await self.cancel(task)
+        task.suspend()
 
     async def remove(self, tasks: Sequence[Task]) -> None:
         """

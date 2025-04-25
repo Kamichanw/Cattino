@@ -74,8 +74,9 @@ class ProcTask(DeviceRequiredTask):
             min_devices=min_devices,
         )
         self._proc: Optional[Union[subprocess.Popen, multiprocessing.Process]] = None
-        self._is_pending = False
-        self._is_cancelled = False
+
+        # only used for suspend and cancel status
+        self._partial_status = None
 
         if callable(cmd_or_func):
             self._target_fn = cmd_or_func
@@ -105,16 +106,15 @@ class ProcTask(DeviceRequiredTask):
         if self.status in [
             TaskStatus.Done,
             TaskStatus.Failed,
-            TaskStatus.Suspended,
-            TaskStatus.Waiting,
         ]:
             return
-        self._is_cancelled = True
+        
+        self._partial_status = TaskStatus.Cancelled
 
     @property
     def status(self) -> TaskStatus:
-        if self._is_pending:
-            return TaskStatus.Suspended
+        if self._partial_status:
+            return self._partial_status
         if self._proc is None:
             return TaskStatus.Waiting
         if isinstance(self._proc, subprocess.Popen):
@@ -149,10 +149,9 @@ class ProcTask(DeviceRequiredTask):
             **task_env,
             **self.visible_device_environ,
         }
-        self._is_pending = False
-        cache_dir = get_cache_dir(self)
-        self._stdout = open_redirected_stream(cache_dir, "stdout")
-        self._stderr = open_redirected_stream(cache_dir, "stderr")
+        self.cache_dir = get_cache_dir(self)
+        self._stdout = open_redirected_stream(self.cache_dir, "stdout")
+        self._stderr = open_redirected_stream(self.cache_dir, "stderr")
         if is_cmd_task:
             self.cmd = Magics.resolve(
                 self.cmd,
@@ -198,19 +197,14 @@ class ProcTask(DeviceRequiredTask):
     def suspend(self) -> None:
         if self.status in [TaskStatus.Done, TaskStatus.Failed, TaskStatus.Suspended]:
             return
-        # the status will be Failed after calling terminate with force=True
-        # we need to set _is_pending to True here to avoid calling on_end
-        self._is_pending = True
-        if self.status == TaskStatus.Running:
-            self.terminate(force=True)
-            self.resume()
-            # in resume, _is_pending is set to False
-            self._is_pending = True
+        self.cancel()
+        self._partial_status = TaskStatus.Suspended
 
     def resume(self) -> None:
         if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:
-            self._is_pending = False
             self._proc = None
+            del self.cache_dir
+            self._partial_status = None
 
     def terminate(self, force: bool = False) -> None:
         if self.status == TaskStatus.Running:
@@ -220,3 +214,5 @@ class ProcTask(DeviceRequiredTask):
         super().on_end()
         self._stdout.close()
         self._stderr.close()
+        del self._stdout
+        del self._stderr

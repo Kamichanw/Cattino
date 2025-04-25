@@ -1,6 +1,5 @@
-import copy
+import networkx as nx
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Union
-from cattino.core.digraph import DiGraph
 from cattino.tasks.interface import AbstractTask, Task, TaskGroup
 
 
@@ -12,7 +11,7 @@ class TaskGraph:
 
     def __init__(self):
         super().__init__()
-        self._graph = DiGraph[Task]()
+        self._graph = nx.DiGraph()
 
     @property
     def graph(self):
@@ -25,9 +24,9 @@ class TaskGraph:
     def add_task(self, task: AbstractTask):
         """Add a task or task group to the task graph."""
         if issubclass(type(task), TaskGroup):
-            self.merge(task.graph) # type: ignore
+            self._graph.add_nodes_from(task.all_tasks)  # type: ignore
         else:
-            self._graph.add_node(task) # type: ignore
+            self._graph.add_node(task)  # type: ignore
 
     def add_tasks_from(self, tasks: Sequence[AbstractTask]):
         """Add multiple tasks or task groups to the task graph."""
@@ -40,27 +39,23 @@ class TaskGraph:
         If u or v is a task group, all tasks from u will add edges to all tasks in v.
         """
         if issubclass(type(u), Task) and issubclass(type(v), Task):
-            self._graph.add_edge(u, v) # type: ignore
+            self._graph.add_edge(u, v)  # type: ignore
         else:
-            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks # type: ignore
-            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks # type: ignore
-            for ut in u_tasks:
-                for vt in v_tasks:
-                    self._graph.add_edge(ut, vt) # type: ignore
+            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks  # type: ignore
+            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks  # type: ignore
+            self._graph.add_edges_from(
+                [(ut, vt) for ut in u_tasks for vt in v_tasks]
+            )
 
-    def add_edges_from(
-        self,
-        edges: List[Tuple[AbstractTask, AbstractTask]],
-    ):
+    def add_edges_from(self, edges: List[Tuple[AbstractTask, AbstractTask]]):
         """Add multiple dependency edges to the task graph."""
         for u, v in edges:
             self.add_edge(u, v)
 
     def remove_task(self, task: AbstractTask):
         """Remove a task or all tasks from a group from the task graph."""
-        tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task] # type: ignore
-        for t in tasks:
-            self._graph.remove_node(t) # type: ignore
+        tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task]  # type: ignore
+        self._graph.remove_nodes_from(tasks)
 
     def remove_tasks_from(self, tasks: List[AbstractTask]):
         """Remove multiple tasks from the task graph."""
@@ -76,29 +71,27 @@ class TaskGraph:
             v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks # type: ignore
             for ut in u_tasks:
                 for vt in v_tasks:
-                    self._graph.remove_edge(ut, vt) # type: ignore
+                    self._graph.remove_edge(ut, vt)
 
-    def remove_edges_from(
-        self,
-        edges: List[Tuple[AbstractTask, AbstractTask]],
-    ):
+    def remove_edges_from(self, edges: List[Tuple[AbstractTask, AbstractTask]]):
         """Remove multiple dependency edges from the task graph."""
         for u, v in edges:
             self.remove_edge(u, v)
 
     def has_cycle(self):
-        return self._graph.has_cycle()
+        return not nx.is_directed_acyclic_graph(self._graph)
 
     @property
     def tasks(self) -> List[Task]:
         """Return all tasks in the task graph."""
-        return self._graph.nodes
+        return list(self._graph.nodes)
 
     def get_successors(self, task: "Task") -> List["Task"]:
-        return self._graph.neighbors(task)
+        return list(self._graph.neighbors(task))
 
     def merge(self, graph: "TaskGraph"):
-        self._graph.merge(graph._graph)
+        # Merge another TaskGraph into this one using the `networkx` graph
+        self._graph.update(graph.graph)
 
     def __len__(self):
         return len(self._graph)

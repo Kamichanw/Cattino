@@ -1,4 +1,5 @@
 import asyncio
+import builtins
 import logging
 import re
 import click
@@ -16,9 +17,9 @@ from loguru import logger
 
 from cattino.comms import Request, Response, TaskResponse
 from cattino.core.task_scheduler import TaskScheduler
-from cattino.tasks.interface import AbstractTask, Task, TaskGroup, TaskStatus
+from cattino.tasks.interface import Task, TaskGroup, TaskStatus
 from cattino.settings import settings
-from cattino.utils import get_cache_dir, has_param_type, open_redirected_stream
+from cattino.utils import Magics, get_cache_dir, has_param_type, open_redirected_stream
 
 
 class InterceptHandler(logging.Handler):
@@ -149,7 +150,7 @@ async def process_tasks(
         )
 
     success, no_op, failure, exception = [], [], [], []
-    allow_status = allow_status or list(TaskStatus)
+    allow_status = allow_status or builtins.list(TaskStatus)
     if not is_take_sequence_func:
         for task in tasks:
             if task.status in allow_status:
@@ -185,8 +186,7 @@ def load_from_message(message: UploadFile = File(...), request: fastapi.Request 
     msg = message.file.read()
     old_path = sys.path
     # add extra paths to load user-defined modules
-    extra_modules = request.headers.get("X-Extra-Path", None)
-    if extra_modules:
+    if extra_modules := request.headers.get("X-Extra-Path", None):
         sys.path = extra_modules.split(",") + sys.path
     try:
         request = dill.loads(msg)
@@ -231,6 +231,16 @@ async def suspend(request: Request = Depends(load_from_message)):
         use_regex=request.use_regex,  # type: ignore
     )
 
+@app.post("/cancel", response_model=TaskResponse)
+async def cancel(request: Request = Depends(load_from_message)):
+    scheduler: TaskScheduler = app.state.task_scheduler
+    return await process_tasks(
+        request.name,  # type: ignore
+        scheduler.cancel,
+        [TaskStatus.Running, TaskStatus.Waiting, TaskStatus.Suspended],
+        use_regex=request.use_regex,  # type: ignore
+    )
+
 
 @app.post("/resume", response_model=TaskResponse)
 async def resume(request: Request = Depends(load_from_message)):
@@ -243,32 +253,109 @@ async def resume(request: Request = Depends(load_from_message)):
     )
 
 
+@app.get("/list", response_model=Response)
+async def list(filter: Optional[str] = None, attrs: str = ""):
+    attrs = attrs.split() # type: ignore
+    scheduler: TaskScheduler = app.state.task_scheduler
+    all_tasks = await scheduler.all_tasks
+    filtered_tasks = []
+    for task in all_tasks:
+        if filter:
+            filter_body = Magics.resolve(
+                filter,
+                task_name=task.name,
+                fullname=task.fullname,
+                run_dir=getattr(task, "cache_dir", None),
+            )
+            try:
+                filter_fn = eval("lambda task: " + filter_body)
+                if filter_fn(task):
+                    filtered_tasks.append(task)
+            except Exception as e:
+                logger.exception(e)
+                return Response(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"{filter} is not a valid python expression for task {task.fullname}: {e}",
+                )
+        else:
+            filtered_tasks.append(task)
+
+    return Response(
+        status_code=status.HTTP_200_OK,
+        results=[
+            {
+                "name": task.fullname,
+                **{attr: getattr(task, attr, None) for attr in attrs},
+            }
+            for task in filtered_tasks
+        ],
+    )
+
+
+@app.post("/set", response_model=Response)
+async def set_task_attr(request: Request = Depends(load_from_message)):
+    scheduler: TaskScheduler = app.state.task_scheduler
+    name, attr = request.name, request.attr  # type: ignore
+    task = await scheduler.get_task_object(name)
+    if task is None:
+        return Response(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task {name} not found.",
+        )
+    if not hasattr(task, attr):
+        return Response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task {name} has no attribute {attr}.",
+        )
+    if attr not in type(task).SETTABLE_ATTRS:
+        return Response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task {name} attribute {attr} is not settable. Only {type(task).SETTABLE_ATTRS} are settable.",
+        )
+    try:
+        setattr(task, attr, request.value)  # type: ignore
+    except Exception as e:
+        logger.exception(e)
+        return Response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to set attribute {attr} for task {name}: {e}",
+        )
+    return Response(status_code=status.HTTP_200_OK)
+
+
 @app.post("/create", response_model=TaskResponse)
 async def create_task(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    success, failure, exception = [], [], []
+    success, failure, no_op, exception = [], [], [], []
     for task in request.tasks:  # type: ignore
-        name = task.name
+        fullname = task.fullname
         try:
             await scheduler.dispatch(task)
-            success.append(name)
+            success.append(fullname)
         except Exception as e:
             logger.exception(e)
-            failure.append(name)
-            exception.append(f"Task failed: {task.fullname}")
+            failure.append(fullname)
+            exception.append(f"Task failed: {fullname}")
+        if issubclass(type(task), TaskGroup):
+            no_op.extend([t.fullname for t in task.all_tasks if t.is_cancelled])
+        else:
+            if task.is_cancelled:
+                no_op.append(fullname)
 
-    return TaskResponse(success=success, failure=failure, detail="\n".join(exception))
+    return TaskResponse(
+        success=success, no_op=no_op, failure=failure, detail="\n".join(exception)
+    )
 
 
-@app.post("/test", response_model=Response)
-async def test(request: Request = Depends(load_from_message)):
+@app.get("/test", response_model=Response)
+async def test_backend():
+    return Response(status_code=status.HTTP_200_OK, pid=os.getpid())
+
+
+@app.get("/test/{name}", response_model=Response)
+async def test_task(name: str):
     scheduler: TaskScheduler = app.state.task_scheduler
-    name: Optional[str] = request.name  # type: ignore
-    if name is None or name == "backend":
-        return Response(status_code=status.HTTP_200_OK, pid=os.getpid())
-
-    tasks = await scheduler.get_tasks(request.name)  # type: ignore
-    if tasks is None:
+    if (tasks := await scheduler.get_tasks(name)) is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND, pid=None)
     if len(tasks) != 1:
         return Response(
@@ -276,8 +363,7 @@ async def test(request: Request = Depends(load_from_message)):
             pid=None,
             detail=f"{name} is not a valid name for task.",
         )
-    task = tasks[0]
-    if task.status != TaskStatus.Running:
+    if (task := tasks[0]).status != TaskStatus.Running:
         return Response(status_code=status.HTTP_202_ACCEPTED, pid=None)
 
     return Response(status_code=status.HTTP_200_OK, pid=getattr(task, "pid", None))

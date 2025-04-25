@@ -74,9 +74,7 @@ class ProcTask(DeviceRequiredTask):
             min_devices=min_devices,
         )
         self._proc: Optional[Union[subprocess.Popen, multiprocessing.Process]] = None
-
-        # only used for suspend and cancel status
-        self._partial_status = None
+        self._is_cancelled = False
 
         if callable(cmd_or_func):
             self._target_fn = cmd_or_func
@@ -109,12 +107,12 @@ class ProcTask(DeviceRequiredTask):
         ]:
             return
         
-        self._partial_status = TaskStatus.Cancelled
+        self._is_cancelled = True
 
     @property
     def status(self) -> TaskStatus:
-        if self._partial_status:
-            return self._partial_status
+        if self._is_cancelled:
+            return TaskStatus.Cancelled
         if self._proc is None:
             return TaskStatus.Waiting
         if isinstance(self._proc, subprocess.Popen):
@@ -194,17 +192,12 @@ class ProcTask(DeviceRequiredTask):
                 # need to call it manually
                 self.on_end()
 
-    def suspend(self) -> None:
-        if self.status in [TaskStatus.Done, TaskStatus.Failed, TaskStatus.Suspended]:
-            return
-        self.cancel()
-        self._partial_status = TaskStatus.Suspended
-
     def resume(self) -> None:
         if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:
             self._proc = None
-            del self.cache_dir
-            self._partial_status = None
+            if hasattr(self, "cache_dir"):
+                del self.cache_dir
+            self._is_cancelled = False
 
     def terminate(self, force: bool = False) -> None:
         if self.status == TaskStatus.Running:

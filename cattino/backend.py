@@ -91,7 +91,6 @@ async def lifespan(app: FastAPI):
                     if (
                         settings.shutdown_on_complete
                         and app.state.redirect_output  # if backend is running in background
-                        and len(task_scheduler._executed_tasks) != 0
                         and not await task_scheduler.is_running
                     ):
                         logger.info("All tasks are done, shutting down...")
@@ -221,23 +220,13 @@ async def remove(request: Request = Depends(load_from_message)):
     )
 
 
-@app.post("/suspend", response_model=TaskResponse)
-async def suspend(request: Request = Depends(load_from_message)):
-    scheduler: TaskScheduler = app.state.task_scheduler
-    return await process_tasks(
-        request.name,  # type: ignore
-        scheduler.suspend,
-        [TaskStatus.Running, TaskStatus.Waiting],
-        use_regex=request.use_regex,  # type: ignore
-    )
-
 @app.post("/cancel", response_model=TaskResponse)
 async def cancel(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
     return await process_tasks(
         request.name,  # type: ignore
         scheduler.cancel,
-        [TaskStatus.Running, TaskStatus.Waiting, TaskStatus.Suspended],
+        [TaskStatus.Running, TaskStatus.Waiting],
         use_regex=request.use_regex,  # type: ignore
     )
 
@@ -248,14 +237,20 @@ async def resume(request: Request = Depends(load_from_message)):
     return await process_tasks(
         request.name,  # type: ignore
         scheduler.resume,
-        [TaskStatus.Suspended],
+        [TaskStatus.Cancelled],
         use_regex=request.use_regex,  # type: ignore
     )
+
+@app.post("/occupy", response_model=Response)
+async def occupy(request: Request = Depends(load_from_message)):
+    scheduler: TaskScheduler = app.state.task_scheduler
+    device_ids, evil = request.device_ids, request.evil  # type: ignore
+    
 
 
 @app.get("/list", response_model=Response)
 async def list(filter: Optional[str] = None, attrs: str = ""):
-    attrs = attrs.split() # type: ignore
+    attrs = attrs.split()  # type: ignore
     scheduler: TaskScheduler = app.state.task_scheduler
     all_tasks = await scheduler.all_tasks
     filtered_tasks = []
@@ -295,7 +290,7 @@ async def list(filter: Optional[str] = None, attrs: str = ""):
 @app.post("/set", response_model=Response)
 async def set_task_attr(request: Request = Depends(load_from_message)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    name, attr = request.name, request.attr  # type: ignore
+    name, attr, value = request.name, request.attr, request.value  # type: ignore
     task = await scheduler.get_task_object(name)
     if task is None:
         return Response(
@@ -313,7 +308,10 @@ async def set_task_attr(request: Request = Depends(load_from_message)):
             detail=f"Task {name} attribute {attr} is not settable. Only {type(task).SETTABLE_ATTRS} are settable.",
         )
     try:
-        setattr(task, attr, request.value)  # type: ignore
+        if isinstance(getattr(task, attr), str):
+            setattr(task, attr, value)
+        else:
+            setattr(task, attr, eval(value))
     except Exception as e:
         logger.exception(e)
         return Response(
@@ -331,16 +329,23 @@ async def create_task(request: Request = Depends(load_from_message)):
         fullname = task.fullname
         try:
             await scheduler.dispatch(task)
-            success.append(fullname)
         except Exception as e:
             logger.exception(e)
             failure.append(fullname)
             exception.append(f"Task failed: {fullname}")
+            continue
         if issubclass(type(task), TaskGroup):
-            no_op.extend([t.fullname for t in task.all_tasks if t.is_cancelled])
+            success.extend(
+                [t.fullname for t in task.all_tasks if t.status != TaskStatus.Cancelled]
+            )
+            no_op.extend(
+                [t.fullname for t in task.all_tasks if t.status == TaskStatus.Cancelled]
+            )
         else:
-            if task.is_cancelled:
+            if task.status == TaskStatus.Cancelled:
                 no_op.append(fullname)
+            else:
+                success.append(fullname)
 
     return TaskResponse(
         success=success, no_op=no_op, failure=failure, detail="\n".join(exception)

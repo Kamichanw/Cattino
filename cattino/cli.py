@@ -412,6 +412,9 @@ def create(
         lambda failure: (
             f"{get_path_tree_str(failure)} failed to create." if failure else None
         ),
+        lambda no_op: (
+            f"{get_path_tree_str(no_op)} already exists, skipping creation." if no_op else None
+        ),
     )
 
 
@@ -442,8 +445,30 @@ def list(filter: Optional[str], attrs: Tuple[str]):
     for result in results:
         table.add_row(result["name"], *[str(result[attr] or "-") for attr in attrs])
 
-    with console.pager(styles=True, links=True):
+    with console.pager():
         console.print(table)
+
+@main.command()
+@click.option(
+    "--evil",
+    is_flag=True,
+    default=False,
+    help="Enable evil mode. This will make other users' tasks out of memory.",
+)
+@click.argument("device_ids", nargs=-1, type=int)
+def occupy(
+    evil: bool,
+    device_ids: Tuple[int],
+):
+    """
+    Occupy the specified devices when there are no tasks scheduled on them.
+    """
+    if not device_ids:
+        click.echo("No device IDs provided.")
+        sys.exit(1)
+
+    response = Request.occupy(device_ids, evil)
+    
 
 
 @main.command()
@@ -534,32 +559,32 @@ def watch(fullname: Optional[str], stream: str):
     "-A",
     is_flag=True,
     default=False,
-    help="Suspend all tasks or match names by regex expressions.",
+    help="Cancel all tasks or match names by regex expressions.",
 )
 @click.argument("name", type=str, required=False)
-def suspend(all: bool, name: Optional[str]):
+def cancel(all: bool, name: Optional[str]):
     """
-    Suspend specific task or group by full name or regex expressions. If the task is running,
+    Cancel specific task or group by full name or regex expressions. If the task is running,
     it will be terminated forcefully. Note that the end hooks of the task will not be called.
     """
     if not name and not all:
         click.echo("No task name provided.")
         sys.exit(1)
 
-    response = Request.suspend(name, use_regex=all)
+    response = Request.cancel(name, use_regex=all)
     print_response(
         response,
         lambda success: (
-            f"{len(success) if success else 0} tasks suspended successfully."
+            f"{len(success) if success else 0} tasks cancelled successfully."
             if response.ok()
             else (
-                f"{get_path_tree_str(success) } suspended successfully."
+                f"{get_path_tree_str(success) } cancelled successfully."
                 if success
                 else None
             )
         ),
         lambda failure: (
-            f"{get_path_tree_str(failure) } failed to suspend." if failure else None
+            f"{get_path_tree_str(failure) } failed to cancell." if failure else None
         ),
         lambda no_op: (
             f"{get_path_tree_str(no_op) } are not in waiting status." if no_op else None
@@ -578,8 +603,7 @@ def suspend(all: bool, name: Optional[str]):
 @click.argument("name", type=str, required=False)
 def resume(all: bool, name: Optional[str]):
     """
-    Resume specific task or group by full name or regex expressions. If the task is not in suspended
-    status, it will be ignored.
+    Resume specific task or group by full name or regex expressions. If the task is not cancelled, it will be ignored.
     """
     if not name and not all:
         click.echo("No task name provided.")
@@ -601,7 +625,7 @@ def resume(all: bool, name: Optional[str]):
             f"{get_path_tree_str(failure) } failed to resume." if failure else None
         ),
         lambda no_op: (
-            f"{get_path_tree_str(no_op) } are not in suspended status."
+            f"{get_path_tree_str(no_op) } are not cancelled."
             if no_op
             else None
         ),

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar, Optional, Dict, Union
+from typing import Generic, TypeVar, Optional, Dict
 
-T = TypeVar("T")  # Generic type for data
+T = TypeVar("T")
 
 
 @dataclass
@@ -28,9 +28,9 @@ class Node(Generic[T]):
         """
         if self.children:
             if len(self.children) > 1:
-                return f"{self.name}{self.sep}{{{', '.join(self.children)}}}"
+                return f"{self.name}{self.sep}{{{', '.join(str(child) for child in self.children.values())}}}"
             else:
-                return f"{self.name}{self.sep}{self.children}"
+                return f"{self.name}{self.sep}{next(iter(self.children.values()))}"
         return self.name
 
 

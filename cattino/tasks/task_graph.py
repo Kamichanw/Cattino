@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from cattino.tasks.interface import AbstractTask, Task, TaskGroup
 
 
@@ -14,12 +14,31 @@ class TaskGraph:
         self._graph = nx.DiGraph()
 
     @property
-    def graph(self):
+    def nx_graph(self):
         return self._graph
 
-    @property
-    def in_degree(self):
-        return self._graph.in_degree
+    def neighbors(self, task: Task) -> List[Task]:
+        """
+        Get the neighbors of a task in the graph.
+        """
+        return list(self._graph.neighbors(task))
+
+    def filter_tasks(self, predicate: Callable[[Task], bool]) -> nx.DiGraph:
+        """
+        Filter tasks in the graph based on a predicate function.
+        The predicate function should take a task as input and return True or False.
+
+        Args:
+            predicate (Callable): A function taking a task as input, which returns `True` if the task
+                should appear in the subgraph.
+        
+        Returns:
+            nx.DiGraph: A read-only graph view of the task graph, filtered by the predicate.
+        """
+        return nx.subgraph_view( # type: ignore
+            self._graph,
+            filter_node=predicate,
+        )
 
     def add_task(self, task: AbstractTask):
         """Add a task or task group to the task graph."""
@@ -43,9 +62,7 @@ class TaskGraph:
         else:
             u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks  # type: ignore
             v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks  # type: ignore
-            self._graph.add_edges_from(
-                [(ut, vt) for ut in u_tasks for vt in v_tasks]
-            )
+            self._graph.add_edges_from([(ut, vt) for ut in u_tasks for vt in v_tasks])
 
     def add_edges_from(self, edges: List[Tuple[AbstractTask, AbstractTask]]):
         """Add multiple dependency edges to the task graph."""
@@ -65,10 +82,10 @@ class TaskGraph:
     def remove_edge(self, u: AbstractTask, v: AbstractTask):
         """Remove a dependency edge from task u to task v."""
         if issubclass(type(u), Task) and issubclass(type(v), Task):
-            self._graph.remove_edge(u, v) # type: ignore
+            self._graph.remove_edge(u, v)  # type: ignore
         else:
-            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks # type: ignore
-            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks # type: ignore
+            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks  # type: ignore
+            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks  # type: ignore
             for ut in u_tasks:
                 for vt in v_tasks:
                     self._graph.remove_edge(ut, vt)
@@ -86,12 +103,9 @@ class TaskGraph:
         """Return all tasks in the task graph."""
         return list(self._graph.nodes)
 
-    def get_successors(self, task: "Task") -> List["Task"]:
-        return list(self._graph.neighbors(task))
-
     def merge(self, graph: "TaskGraph"):
         # Merge another TaskGraph into this one using the `networkx` graph
-        self._graph.update(graph.graph)
+        self._graph.update(graph.nx_graph)
 
     def __len__(self):
         return len(self._graph)

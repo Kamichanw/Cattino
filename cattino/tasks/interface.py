@@ -25,7 +25,6 @@ class TaskStatus(enum.Enum):
     Cancelled = (
         enum.auto()
     )  # The task has been cancelled and will not be scheduled for execution.
-    Suspended = enum.auto()  # The task will be delayed until it is woken up.
     Waiting = enum.auto()
     Running = enum.auto()
     Done = enum.auto()  # The task has finished successfully
@@ -94,9 +93,6 @@ class AbstractTask(ABC):
     def cancel(self) -> None: ...
 
     @abstractmethod
-    def suspend(self) -> None: ...
-
-    @abstractmethod
     def resume(self) -> None: ...
 
     @abstractmethod
@@ -161,22 +157,6 @@ class Task(AbstractTask):
         ...
 
     @abstractmethod
-    def suspend(self) -> None:
-        """
-        Postpone a task. If the task is currently running, cancel it and set its status to pending.
-        """
-        if self.status in [
-            TaskStatus.Done,
-            TaskStatus.Failed,
-            TaskStatus.Suspended,
-            TaskStatus.Cancelled,
-        ]:
-            return
-        self.cancel()
-        # set status to Pending
-        ...
-
-    @abstractmethod
     def resume(self) -> None:
         """
         Resume a pending or executed task to a ready-to-start state.
@@ -184,7 +164,7 @@ class Task(AbstractTask):
         guarantee that all inner variables are reset to the initial state.
 
         Note that only cattino can call this method when the task has been executed.
-        CLI users should use the `resume` command to a suspended or cancelled task.
+        CLI users should use the `resume` command to a cancelled task.
         """
         if self.status in [TaskStatus.Running, TaskStatus.Waiting]:
             return
@@ -358,26 +338,25 @@ class TaskGroup(AbstractTask):
         super().__init__(
             group_name if group_name is not None else f"group_of_{tasks[0].name}"
         )
-        self.subtasks = tasks
+        self.subtasks: List[AbstractTask] = []
         self._group: Optional["TaskGroup"] = None
 
         for t in tasks:
-            t._group = self
+            self.add_task(t)
 
-        all_tasks: Set[Task] = set(
+        all_tasks: List[Task] = list(
             itertools.chain(
                 *[[t] if not issubclass(type(t), TaskGroup) else t.all_tasks for t in tasks]  # type: ignore
             )
         )
 
-        duplicate_task_names = [
+        if duplicate_task_names := [
             item
             for item, count in Counter(t.fullname for t in all_tasks).items()
             if count > 1
-        ]
-        if duplicate_task_names:
+        ]:
             raise ValueError(
-                f"Task names must be unique, but got duplicate task names: {duplicate_task_names}"
+                f"Task names must be unique, but got duplicate task names: {', '.join(duplicate_task_names)}"
             )
 
         if isinstance(execute_strategy, str):
@@ -394,26 +373,27 @@ class TaskGroup(AbstractTask):
                 raise ValueError(
                     "The execute_strategy has a cycle, which will lead to deadlock."
                 )
-            strategy_tasks = set(execute_strategy.tasks)
 
-            if not strategy_tasks.issubset(all_tasks):
+            strategy_tasks = set(execute_strategy.tasks)
+            all_tasks_set = set(all_tasks)
+            if not strategy_tasks.issubset(all_tasks_set):
                 raise ValueError(
-                    f"{', '.join([t.fullname for t in strategy_tasks - all_tasks])} from execute_strategy "
+                    f"{', '.join([t.fullname for t in strategy_tasks - all_tasks_set])} from execute_strategy "
                     "are not in the task group."
                 )
 
             # add remaining tasks that are not in execute_strategy
-            execute_strategy.add_tasks_from(list(all_tasks - strategy_tasks))
+            execute_strategy.add_tasks_from(list(all_tasks_set - strategy_tasks))
             task_graph = execute_strategy
 
-        self.graph = task_graph
+        self.execute_graph = task_graph
 
     @property
     def all_tasks(self) -> List[Task]:
         """
         Get all tasks in the task group.
         """
-        return self.graph.tasks
+        return self.execute_graph.tasks
 
     def cancel(self):
         """
@@ -421,13 +401,6 @@ class TaskGroup(AbstractTask):
         """
         for subtask in self.subtasks:
             subtask.cancel()
-
-    def suspend(self):
-        """
-        Suspend all tasks and groups in the group.
-        """
-        for subtask in self.subtasks:
-            subtask.suspend()
 
     def resume(self):
         """
@@ -442,6 +415,23 @@ class TaskGroup(AbstractTask):
         """
         for subtask in self.subtasks:
             subtask.terminate(force=force)
+
+    def add_task(self, task: AbstractTask):
+        """
+        Add a task or a task group to the current task group.
+        """
+        if task in self:
+            raise ValueError(
+                f"Task '{task.fullname}' is already in the group '{self.fullname}'."
+            )
+
+        if task.group is not None:
+            raise ValueError(
+                f"Task '{task.fullname}' is already in group '{task.group.fullname}'."
+            )
+
+        self.subtasks.append(task)
+        task._group = self
 
     @property
     def status(self):
@@ -519,3 +509,10 @@ class TaskGroup(AbstractTask):
 
     def __len__(self):
         return len(self.subtasks)
+
+    def __contains__(self, task: AbstractTask):
+        while (group := task.group) is not None:
+            if group == self:
+                return True
+            task = group
+        return False

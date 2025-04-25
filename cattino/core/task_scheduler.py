@@ -43,34 +43,21 @@ class TaskScheduler:
     """
 
     def __init__(self) -> None:
-        # when a task or a group is dispatched, it will be added to the _pending_tasks
+        # when a task or a group is dispatched, it will be added to the _task_graph
         # and the task will be scheduled by self.step. A task can be started if:
         #       - it has no predecessors
         #       - it has the highest priority
         #       - it is created the earliest
-        # only a task is finished, it will be removed from the pending tasks
         # we ensure that there is no overlap in the tasks or task groups from each dispatching
-        self._pending_tasks = TaskGraph()
-        self._pending_tasks_lock = aiorwlock.RWLock()
-
-        # if a task starts, it will be added to the executed tasks
-        self._executed_tasks: List[Task] = []
-        self._executed_tasks_lock = aiorwlock.RWLock()
+        self._task_graph = TaskGraph()
+        self._task_graph_lock = aiorwlock.RWLock()
 
         # group info ensures that the start/end hooks are called in the correct order
         self._group_info: Dict[AbstractTask, GroupInfo] = {}
         self._group_info_lock = asyncio.Lock()
 
-        # candidates are the tasks that have no predecessors and are not executed yet
-        # in each step, we will execute at most one task from the candidates
-        self._candidates: List[Task] = []
-
         self._name_tree = PathTree[AbstractTask]("fullname")
         self._name_tree_lock = aiorwlock.RWLock()
-
-        # the number of running tasks, including the tasks that are executing end hooks
-        self._num_running_tasks = 0
-        self._num_running_tasks_lock = aiorwlock.RWLock()
 
     def _remove_from_group_info(self, task: AbstractTask):
         """
@@ -132,7 +119,7 @@ class TaskScheduler:
                     pre_hook_tasks = gather_pre_hook_tasks(task)
                     # we won't remove parent remaining set even there is no remaining
                     # task in current group, because user may re-add tasks to remaining set
-                    # by suspending operation.
+                    # by cancelling operation.
                     self._group_info[task].remaining.remove(task)
             else:
                 pre_hook_tasks = [task]
@@ -148,26 +135,21 @@ class TaskScheduler:
             if task.status in [TaskStatus.Done, TaskStatus.Failed]:
 
                 def cascade_cancel(task):
-                    successors = self._pending_tasks.get_successors(task)
-                    for t in successors:
+                    for t in self._task_graph.neighbors(task):
                         cascade_cancel(t)
                         t.cancel()
                         self._remove_from_group_info(t)
-                        self._pending_tasks.remove_task(t)
 
                 if (
                     settings.cascade_cancel_on_failure
                     and task.status == TaskStatus.Failed
                 ):
-                    async with self._pending_tasks_lock.writer_lock:
+                    async with self._task_graph_lock.writer_lock:
                         async with self._group_info_lock:
                             cascade_cancel(task)
 
                 async with self._group_info_lock:
                     post_hook_tasks = gather_post_hook_tasks(task)
-
-                async with self._pending_tasks_lock.writer_lock:
-                    self._pending_tasks.remove_task(task)
 
                 logger.info(f"Task {task.fullname} finished with status {task.status}")
                 for t in post_hook_tasks:
@@ -178,16 +160,20 @@ class TaskScheduler:
         except Exception as e:
             logger.exception(e)
         finally:
-            async with self._num_running_tasks_lock.writer_lock:
-                self._num_running_tasks -= 1
+            async with self._task_graph_lock.writer_lock:
+                if task in self._task_graph.tasks:
+                    self._task_graph.nx_graph.nodes[task]["started"] = False
 
     @property
     async def is_running(self) -> bool:
         """
         Check if the task scheduler is running.
         """
-        async with self._num_running_tasks_lock.reader_lock:
-            return self._num_running_tasks > 0
+        async with self._task_graph_lock.reader_lock:
+            return len(self._task_graph) != 0 and any(
+                self._task_graph.nx_graph.nodes[task].get("started", False)
+                for task in self._task_graph.tasks
+            )
 
     async def step(self):
         """
@@ -195,26 +181,31 @@ class TaskScheduler:
         were executed, otherwise returns False.
         """
 
-        if not self._candidates:
-            async with self._executed_tasks_lock.reader_lock:
-                async with self._pending_tasks_lock.reader_lock:
-                    outter_nodes = [
-                        task
-                        for task, ind in self._pending_tasks.in_degree.items()
-                        if ind == 0 and task not in self._executed_tasks
-                    ]
-            self._candidates = sorted(
-                outter_nodes,
-                key=lambda task: (-task.priority, task.create_time),
+        async with self._task_graph_lock.reader_lock:
+            avail_task_graph = self._task_graph.filter_tasks(
+                lambda task: task.status
+                not in [TaskStatus.Done, TaskStatus.Failed, TaskStatus.Running]
+                and not self._task_graph.nx_graph.nodes[task].get("started", False)
             )
+            outter_nodes: List[Task] = [
+                task
+                for task in avail_task_graph.nodes
+                if avail_task_graph.in_degree(task) == 0
+            ]
 
-        upcoming_task = self._candidates[0] if self._candidates else None
+        upcoming_task = min(
+            outter_nodes,
+            key=lambda task: (-task.priority, task.create_time),
+            default=None,
+        )
+
+        logger.debug(
+            f"Upcoming task: {upcoming_task.fullname if upcoming_task else 'None'}"
+        )
+
         if upcoming_task and upcoming_task.is_ready:
-            self._candidates = self._candidates[1:]
-            async with self._num_running_tasks_lock.writer_lock:
-                self._num_running_tasks += 1
-            async with self._executed_tasks_lock.writer_lock:
-                self._executed_tasks.append(upcoming_task)
+            async with self._task_graph_lock.writer_lock:
+                self._task_graph.nx_graph.nodes[upcoming_task]["started"] = True
             asyncio.create_task(self._execute_task(upcoming_task))
             return True
         return False
@@ -260,37 +251,12 @@ class TaskScheduler:
                 return None
 
     @property
-    async def running_tasks(self) -> List[Task]:
-        """
-        Get all running tasks.
-        """
-        async with self._executed_tasks_lock.reader_lock:
-            return [
-                task
-                for task in self._executed_tasks
-                if task.status == TaskStatus.Running
-            ]
-
-    @property
-    async def pending_tasks(self) -> List[Task]:
-        """
-        Get all pending tasks.
-        """
-        async with self._pending_tasks_lock.reader_lock:
-            return [
-                task
-                for task in self._pending_tasks.tasks
-                if task.status in [TaskStatus.Waiting, TaskStatus.Suspended]
-            ]
-
-    @property
     async def all_tasks(self) -> List[Task]:
         """
         Get all tasks, including executed and pending tasks.
         """
-        async with self._executed_tasks_lock.reader_lock:
-            async with self._pending_tasks_lock.reader_lock:
-                return list(set(self._executed_tasks + self._pending_tasks.tasks))
+        async with self._task_graph_lock.reader_lock:
+            return self._task_graph.tasks
 
     async def dispatch(
         self,
@@ -305,17 +271,15 @@ class TaskScheduler:
             Check if there are duplicate tasks in the given tasks. Returns
             the duplicate tasks that need to be removed.
             """
-            duplicate_task_names = set(t.fullname for t in tasks) & set(
+            if duplicate_task_names := set(t.fullname for t in tasks) & set(
                 t.fullname for t in await self.all_tasks
-            )
-            if duplicate_task_names:
+            ):
                 if settings.override_exist_tasks == "forbid":
                     raise ValueError(
                         f"Tasks with the same name can be executed only once, but got duplicate task names: {', '.join(duplicate_task_names)}. "
                         "Use `meow set override-exist-tasks allow` or `meow set override-exist-tasks rename` to suppress this error."
                     )
                 elif settings.override_exist_tasks == "rename":
-                    # TODO: Add relation tree to accelerate name matching
                     for t in tasks:
                         if t.fullname in duplicate_task_names:
                             m = re.match(r"(.+)_([0-9]+)$", t.name)
@@ -328,61 +292,45 @@ class TaskScheduler:
                     await self.remove(
                         [self._name_tree[name] for name in duplicate_task_names]  # type: ignore
                     )
-                else:
-                    return duplicate_task_names
-            return []
 
         if issubclass(type(task), TaskGroup):
-            name_to_skip = await check_duplicate(task.all_tasks)  # type: ignore
+            await check_duplicate(task.all_tasks)  # type: ignore
 
             def set_group_info(group: TaskGroup):
                 group_info = GroupInfo(
                     total=set(group.subtasks),
                     remaining=set(group.subtasks),
                 )
-                self._name_tree[group.fullname] = group
                 for t in group.subtasks:
                     self._group_info[t] = group_info
                     if issubclass(type(t), TaskGroup):
                         set_group_info(t)  # type: ignore
                     else:
-                        if t.fullname in name_to_skip:
-                            t.cancel()
-                            logger.info(
-                                f"Task {t.name} already exists, skipping dispatch."
-                            )
-                            continue
-                    self._name_tree[t.fullname] = t
+                        self._name_tree[t.fullname] = t
+                self._name_tree[group.fullname] = group
 
+            # group info lock is no need here
             async with self._name_tree_lock.writer_lock:
                 set_group_info(task)  # type: ignore
         else:
-            name_to_skip = await check_duplicate([task])  # type: ignore
-            if name_to_skip == [task.fullname]:
-                task.cancel()
-                logger.info(f"Task {task.name} already exists, skipping dispatch.")
-                return
+            await check_duplicate([task])  # type: ignore
+
             async with self._name_tree_lock.writer_lock:
                 self._name_tree[task.fullname] = task
 
-        async with self._pending_tasks_lock.writer_lock:
-            self._pending_tasks.add_task(task)
+        async with self._task_graph_lock.writer_lock:
+            self._task_graph.add_task(task)
 
     async def resume(self, task: Task) -> None:
         task.resume()
-    
+
     async def cancel(self, task: Task) -> None:
         task.cancel()
         if task.status == TaskStatus.Cancelled:
-            async with self._executed_tasks_lock.writer_lock:
-                if task in self._executed_tasks:
-                    self._executed_tasks.remove(task)
+            async with self._task_graph_lock.writer_lock:
+                self._task_graph.nx_graph.nodes[task]["started"] = False
             async with self._group_info_lock:
                 self._group_info[task].remaining.add(task)
-
-    async def suspend(self, task: Task) -> None:
-        await self.cancel(task)
-        task.suspend()
 
     async def remove(self, tasks: Sequence[Task]) -> None:
         """
@@ -392,20 +340,19 @@ class TaskScheduler:
         # we must remove the task from the pending tasks first
         # to ensure the on_end of groups is called properly
         for task in tasks:
-            async with self._pending_tasks_lock.writer_lock:
-                if task in self._pending_tasks.tasks:
-                    if task.status in [TaskStatus.Waiting, TaskStatus.Suspended]:
+            async with self._task_graph_lock.writer_lock:
+                if task in self._task_graph.tasks:
+                    if task.status in [TaskStatus.Waiting, TaskStatus.Cancelled]:
                         async with self._group_info_lock:
                             self._remove_from_group_info(task)
-                    self._pending_tasks.remove_task(task)
+                    self._task_graph.remove_task(task)
 
         for task in tasks:
             if task.status == TaskStatus.Running:
                 task.terminate(force=True)
 
-            async with self._executed_tasks_lock.writer_lock:
-                if task in self._executed_tasks:
-                    self._executed_tasks.remove(task)
+            async with self._task_graph_lock.writer_lock:
+                self._task_graph.remove_task(task)
 
     async def terminate(self, task: AbstractTask, force: bool = False) -> None:
         task.terminate(force=force)

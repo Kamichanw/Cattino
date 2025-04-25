@@ -84,14 +84,14 @@ class CudaPlatform(Platform):
     def get_device_total_memory(cls, device_id: int = 0) -> int:
         physical_device_id = device_id_to_physical_device_id(device_id)
         handle = pynvml.nvmlDeviceGetHandleByIndex(physical_device_id)
-        return pynvml.nvmlDeviceGetMemoryInfo(handle).total // 1024**2
+        return int(pynvml.nvmlDeviceGetMemoryInfo(handle).total) // 1024**2
 
     @classmethod
     @with_nvml_context
     def get_device_free_memory(cls, device_id: int = 0) -> int:
         physical_device_id = device_id_to_physical_device_id(device_id)
         handle = pynvml.nvmlDeviceGetHandleByIndex(physical_device_id)
-        return pynvml.nvmlDeviceGetMemoryInfo(handle).free // 1024**2
+        return int(pynvml.nvmlDeviceGetMemoryInfo(handle).free) // 1024**2
 
     @classmethod
     @with_nvml_context

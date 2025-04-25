@@ -60,14 +60,13 @@ class Settings(BaseModel):
     The `settings.bin` is stored as a `dict[str, Any]`."
     """
 
-    override_exist_tasks: Literal["allow", "forbid", "rename", "skip"] = Field(
+    override_exist_tasks: Literal["allow", "forbid", "rename"] = Field(
         "forbid",
         description=(
             "Defines how to handle existing tasks when adding new ones. "
             "'allow' will directly override existing tasks, "
             "'forbid' will raise an exception if the task exists, "
             "'rename' will add a suffix with an incremental number to the new task. "
-            "'skip' will cancel those new tasks if there are existing tasks with the same fullname. "
             "Defaults to 'forbid'."
         ),
     )

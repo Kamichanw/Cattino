@@ -6,5 +6,5 @@ build-backend = "setuptools.build_meta"
 ignore_missing_imports = true
 check_untyped_defs = true
 follow_imports = "skip"
-exclude = [ "^catin/third_party/.*",]
+exclude = [ "^cattino/third_party/.*",]
 

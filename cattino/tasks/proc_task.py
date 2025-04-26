@@ -143,13 +143,14 @@ class ProcTask(DeviceRequiredTask):
 
         is_cmd_task = hasattr(self, "cmd")
         task_env = self.env or os.environ
+        cache_dir = get_cache_dir(self)
         merged_env = {
             **task_env,
             **self.visible_device_environ,
+            "CATTINO_TASK_HOME": cache_dir,
         }
-        self.cache_dir = get_cache_dir(self)
-        self._stdout = open_redirected_stream(self.cache_dir, "stdout")
-        self._stderr = open_redirected_stream(self.cache_dir, "stderr")
+        self._stdout = open_redirected_stream(cache_dir, "stdout")
+        self._stderr = open_redirected_stream(cache_dir, "stderr")
         if is_cmd_task:
             self.cmd = Magics.resolve(
                 self.cmd,
@@ -195,8 +196,6 @@ class ProcTask(DeviceRequiredTask):
     def resume(self) -> None:
         if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:
             self._proc = None
-            if hasattr(self, "cache_dir"):
-                del self.cache_dir
             self._is_cancelled = False
 
     def terminate(self, force: bool = False) -> None:

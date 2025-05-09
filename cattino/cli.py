@@ -742,7 +742,10 @@ def retrieve_setting_help():
     - `setting-name` (`setting_type`): `setting_description`
     """
     keys = builtins.list(settings.default_settings.keys())
-    types = [settings.get_type(key).__name__ for key in keys]
+    types = [
+        getattr(settings.get_type(key), "__name__", settings.get_type(key))
+        for key in keys
+    ]
     descriptions = [settings.get_description(key) for key in keys]
     return "\n".join(
         f"- {key.replace('_', '-')} ({type}): {description}"

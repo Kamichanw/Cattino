@@ -218,8 +218,8 @@ class Request(Message):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    @communicate("create", TaskResponse)
     @staticmethod
+    @communicate("create", TaskResponse)
     def create(
         tasks: Sequence[AbstractTask],
         extra_paths: Optional[Sequence[str]] = None,
@@ -247,8 +247,8 @@ class Request(Message):
             **kwargs,
         )
 
-    @communicate("kill", TaskResponse)
     @staticmethod
+    @communicate("kill", TaskResponse)
     def kill(
         name: Optional[str], force: bool = False, use_regex: bool = False, **kwargs
     ) -> TaskResponse:
@@ -268,8 +268,8 @@ class Request(Message):
             Request(name=name, force=force, use_regex=use_regex), **kwargs
         )
 
-    @communicate("list")
     @staticmethod
+    @communicate("list")
     def list(filter: Optional[str], attrs: Tuple[str], **kwargs) -> Response:
         """
         Query specified attributes of tasks that match the given condition.
@@ -286,8 +286,8 @@ class Request(Message):
         """
         return get_request(**kwargs, params={"filter": filter, "attrs": " ".join(attrs)})  # type: ignore
 
-    @communicate("set", Response)
     @staticmethod
+    @communicate("set", Response)
     def set_task_attr(name: str, attr: str, value: str, **kwargs) -> Response:
         """
         Set a specific attribute of a task to a new value.
@@ -304,8 +304,8 @@ class Request(Message):
             Request(name=name, attr=attr, value=value), **kwargs  # type: ignore
         )
 
-    @communicate("cancel", TaskResponse)
     @staticmethod
+    @communicate("cancel", TaskResponse)
     def cancel(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
         """
         Cancel tasks by name or regex expression. If no name is provided, all tasks will be cancelled.
@@ -320,8 +320,8 @@ class Request(Message):
         """
         return post_request(Request(name=name, use_regex=use_regex), **kwargs)  # type: ignore
 
-    @communicate("resume", TaskResponse)
     @staticmethod
+    @communicate("resume", TaskResponse)
     def resume(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
         """
         Resume tasks by name or regex expression. If no name is provided, all tasks will be resumed.
@@ -336,8 +336,8 @@ class Request(Message):
         """
         return post_request(Request(name=name, use_regex=use_regex), **kwargs)  # type: ignore
 
-    @communicate("remove", TaskResponse)
     @staticmethod
+    @communicate("remove", TaskResponse)
     def remove(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
         """
         Remove tasks by name or regex expression. If no name is provided, all tasks will be removed.
@@ -352,8 +352,8 @@ class Request(Message):
         """
         return post_request(Request(name=name, use_regex=use_regex), **kwargs)  # type: ignore
 
-    @communicate("exit")
     @staticmethod
+    @communicate("exit")
     def exit(**kwargs) -> Response:
         """
         Exit backend. This will remove all tasks forcefully and exit the backend process.
@@ -366,8 +366,8 @@ class Request(Message):
         """
         return post_request(**kwargs)  # type: ignore
 
-    @communicate("test")
     @staticmethod
+    @communicate("test")
     def test(name: Optional[str] = None, **kwargs) -> Response:
         """
         Query the backend or a specific task whether it is running.

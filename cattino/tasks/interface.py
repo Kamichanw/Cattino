@@ -459,7 +459,23 @@ class TaskGroup(AbstractTask):
         Create a TaskGroup from name-task pairs.
 
         Args:
-            name_task_pairs (Sequence[tuple[str, AbstractTask]]): A sequence of tuples containing task names and tasks.
+            name_task_pairs (Sequence[tuple[str, AbstractTask]]): A sequence of tuples containing task group fullnames and tasks.
+                For root tasks, group name should be an empty string. For example, the following pairs:
+                ```
+                [
+                    ("", task1),
+                    ("group1", task2),
+                    ("group1/group2", task3),
+                ]
+                ```
+                will create a group with the following structure:
+                ```
+                group_name
+                ├── task1
+                └── group1
+                    └── group2
+                        └── task3
+                ```
             group_types (Optional[Dict[str, type[TaskGroup]]], *optional*): A dictionary mapping group names to their respective TaskGroup types.
                 For those unspecified, the current TaskGroup type will be used.
                 Defaults to None.
@@ -474,10 +490,11 @@ class TaskGroup(AbstractTask):
         """
         if group_types is None:
             group_types = {}
-
+        name_task_pairs = [(name.rstrip("/"), task) for name, task in name_task_pairs]
         tree = PathTree[AbstractTask]()
         for name, task in name_task_pairs:
-            tree.set_node(name, task)
+            if name:
+                tree.set_node(f"{name}{tree.sep}{task.name}", task)
 
         def build_group(node):
             subtasks = []
@@ -499,7 +516,8 @@ class TaskGroup(AbstractTask):
             )
 
         return cls(
-            [build_group(root) for root in tree.roots.values()],
+            [build_group(root) for root in tree.roots.values()]
+            + [task for name, task in name_task_pairs if not name],
             execute_strategy=execute_strategy,
             group_name=group_name,
         )

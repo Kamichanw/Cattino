@@ -170,8 +170,15 @@ class TaskScheduler:
         Check if the task scheduler is running.
         """
         async with self._task_graph_lock.reader_lock:
-            return len(self._task_graph) != 0 and any(
-                self._task_graph.nx_graph.nodes[task].get("started", False)
+            if len(self._task_graph) == 0:
+                # waiting for tasks to be added
+                return True
+
+            return any(
+                # a task that doesn't have `started` means it hasn't scheduled yet
+                not hasattr(self._task_graph.nx_graph.nodes[task], "started")
+                # or, it is running
+                or self._task_graph.nx_graph.nodes[task]["started"]
                 for task in self._task_graph.tasks
             )
 
@@ -328,7 +335,7 @@ class TaskScheduler:
         task.cancel()
         if task.status == TaskStatus.Cancelled:
             async with self._task_graph_lock.writer_lock:
-                self._task_graph.nx_graph.nodes[task]["started"] = False
+                del self._task_graph.nx_graph.nodes[task]["started"]
             async with self._group_info_lock:
                 self._group_info[task].remaining.add(task)
 

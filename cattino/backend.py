@@ -241,12 +241,6 @@ async def resume(request: Request = Depends(load_from_message)):
         use_regex=request.use_regex,  # type: ignore
     )
 
-@app.post("/occupy", response_model=Response)
-async def occupy(request: Request = Depends(load_from_message)):
-    scheduler: TaskScheduler = app.state.task_scheduler
-    device_ids, evil = request.device_ids, request.evil  # type: ignore
-    
-
 
 @app.get("/list", response_model=Response)
 async def list(filter: Optional[str] = None, attrs: str = ""):

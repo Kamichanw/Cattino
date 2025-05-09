@@ -351,23 +351,6 @@ class Request(Message):
             TaskResponse: A response object containing the status code and details of the task removal.
         """
         return post_request(Request(name=name, use_regex=use_regex), **kwargs)  # type: ignore
-    
-    @communicate("occupy", Response)
-    @staticmethod
-    def occupy(device_ids: Sequence[int], evil: bool = False, **kwargs) -> Response:
-        """
-        Occupy specified devices. This will prevent other users' tasks from using the specified devices.
-
-        Args:
-            device_ids (list of int): The IDs of the devices to occupy, which is controlled by
-                platform-specific environment variables.
-            evil (bool): Whether to occupy the devices in an evil way. Default is False.
-            **kwargs: Additional keyword arguments for the request.
-
-        Returns:
-            Response: A response object containing the status code and details of the occupation.
-        """
-        return post_request(Request(device_ids=device_ids, evil=evil), **kwargs)  # type: ignore
 
     @communicate("exit")
     @staticmethod

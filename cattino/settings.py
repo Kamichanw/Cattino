@@ -124,7 +124,7 @@ class Settings(BaseModel):
     # prevent calling custom setter recursively
     _internal_set: bool = PrivateAttr(default=False)
     # store the binary settings
-    _bin: SettingsBinary = PrivateAttr(default=None) # type: ignore
+    _bin: SettingsBinary = PrivateAttr(default=None)  # type: ignore
     # extra getter
     _getter: Dict[str, Callable] = PrivateAttr(default={})
     # extra setter. to add a setter for attr, add a new entry to this dict.

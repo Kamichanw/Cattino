@@ -413,7 +413,9 @@ def create(
             f"{get_path_tree_str(failure)} failed to create." if failure else None
         ),
         lambda no_op: (
-            f"{get_path_tree_str(no_op)} already exists, skipping creation." if no_op else None
+            f"{get_path_tree_str(no_op)} already exists, skipping creation."
+            if no_op
+            else None
         ),
     )
 
@@ -447,28 +449,6 @@ def list(filter: Optional[str], attrs: Tuple[str]):
 
     with console.pager():
         console.print(table)
-
-@main.command()
-@click.option(
-    "--evil",
-    is_flag=True,
-    default=False,
-    help="Enable evil mode. This will make other users' tasks out of memory.",
-)
-@click.argument("device_ids", nargs=-1, type=int)
-def occupy(
-    evil: bool,
-    device_ids: Tuple[int],
-):
-    """
-    Occupy the specified devices when there are no tasks scheduled on them.
-    """
-    if not device_ids:
-        click.echo("No device IDs provided.")
-        sys.exit(1)
-
-    response = Request.occupy(device_ids, evil)
-    
 
 
 @main.command()
@@ -625,9 +605,7 @@ def resume(all: bool, name: Optional[str]):
             f"{get_path_tree_str(failure) } failed to resume." if failure else None
         ),
         lambda no_op: (
-            f"{get_path_tree_str(no_op) } are not cancelled."
-            if no_op
-            else None
+            f"{get_path_tree_str(no_op) } are not cancelled." if no_op else None
         ),
     )
 

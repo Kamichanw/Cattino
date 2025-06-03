@@ -4,8 +4,11 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 
 
-def get_requirements() -> list[str]:
-    """Get Python package dependencies from requirements.txt."""
+def get_requirements(extras: dict[str, str] | None = None) -> list[str]:
+    """Get Python package dependencies from requirements.txt.
+
+    Handles extras by adding the corresponding requirements files.
+    """
     requirements_dir = ROOT_DIR / "requirements"
 
     def _read_requirements(filename: str) -> list[str]:
@@ -23,7 +26,16 @@ def get_requirements() -> list[str]:
                 resolved_requirements.append(line)
         return resolved_requirements
 
-    return _read_requirements("common.txt")
+    base_requirements = _read_requirements("common.txt")
+
+    if extras:
+        extra_requirements = []
+        for extra_name, extra_files in extras.items():
+            for extra_file in extra_files.split(","):
+                extra_requirements += _read_requirements(extra_file.strip())
+        return base_requirements + extra_requirements
+    else:
+        return base_requirements
 
 
 setup(
@@ -34,6 +46,7 @@ setup(
     description="A Python task scheduling framework.",
     packages=find_packages(),
     include_package_data=True,
+    extras_require={"docs": "docs.txt"},
     install_requires=get_requirements(),
     entry_points={
         "console_scripts": [

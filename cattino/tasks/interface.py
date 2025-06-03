@@ -8,6 +8,7 @@ import enum
 from typing import Dict, List, Literal, Optional, Sequence, Set, Union, TYPE_CHECKING
 from collections import Counter
 
+from cattino.settings import settings
 from cattino.core.path_tree import PathTree
 from cattino.utils import is_valid_filename
 from cattino.core.device_allocator import DeviceAllocator
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 
 
 class TaskStatus(enum.Enum):
+    @staticmethod
     def _generate_next_value_(name, start, count, last_values):
         return name
 
@@ -40,6 +42,8 @@ class TaskStatus(enum.Enum):
 
 
 class AbstractTask(ABC):
+    # settable attributes that can be modified by `set` cli during runtime,
+    # can be extended in derived classes
     SETTABLE_ATTRS = ["name"]
 
     def __init__(self, name: str):
@@ -220,42 +224,56 @@ class DeviceRequiredTask(Task):
         self,
         task_name: Optional[str] = None,
         priority: int = 0,
-        requires_memory_per_device: int = 0,
+        requires_memory_per_device: Union[int, float] = 0,
         min_devices: int = 1,
     ) -> None:
         """
         Base class for tasks that require device resource allocation.
 
         Args:
-            requires_memory_per_device (int): Memory required per device (in MiB).
+            requires_memory_per_device (int or float): Memory required per device (in MiB),
+                or a ratio of the total device memory (0-1). Defaults to 0.
             min_devices (int): Minimum number of devices required.
-            task_name (Optional[str], optional): Name of the task. Defaults to None.
-            priority (int, optional): Task priority. Defaults to 0.
+            task_name (str, *optional*): Name of the task. Defaults to None.
+            priority (int): Task priority. Defaults to 0.
         """
         super().__init__(task_name=task_name, priority=priority)
         self._allocator = DeviceAllocator()
         # this property will be set by the allocator
         self._assigned_device_indices: Optional[List[int]] = None
-
-        self._requires_memory_per_device = requires_memory_per_device
-        self._min_devices = min_devices
+        self._requires_memory_per_device: int = 0
+        self._min_devices: int = 1
+        self.requires_memory_per_device = requires_memory_per_device
+        self.min_devices = min_devices
 
     @property
     def requires_memory_per_device(self) -> int:
         """
-        Get the memory required per device.
+        Get the memory required per device in MiB.
         """
         return self._requires_memory_per_device
 
     @requires_memory_per_device.setter
-    def requires_memory_per_device(self, value: int) -> None:
+    def requires_memory_per_device(self, value: Union[int, float]) -> None:
         """
-        Set the memory required per device.
+        Set the memory required per device, which can be an integer (in MiB) or a float (as a ratio of total device memory).
         """
-        if self.status == TaskStatus.Running:
-            raise RuntimeError(
-                "Cannot set requires_memory_per_device while the task is running."
+        max_memory = self._allocator.get_device_total_memory()
+        if isinstance(value, float):
+            if not (0 <= value <= 1):
+                raise ValueError("requires_memory_per_device must be between 0 and 1.")
+            value = int(max_memory * value)
+
+        if self.min_devices > len(settings.visible_devices):
+            raise ValueError(
+                f"Not enough devices: required {self.min_devices} but only {len(settings.visible_devices)} visible."
             )
+
+        if value > max_memory:
+            raise ValueError(
+                f"Insufficient memory: requires {value} MiB, but max available is {max_memory} MiB."
+            )
+
         self._requires_memory_per_device = value
 
     @property
@@ -270,8 +288,13 @@ class DeviceRequiredTask(Task):
         """
         Set the minimum number of devices required for the task.
         """
-        if self.status == TaskStatus.Running:
-            raise RuntimeError("Cannot set min_devices while the task is running.")
+        if self.assigned_device_indices is not None:
+            if value > len(self.assigned_device_indices):
+                raise ValueError(
+                    f"Cannot set min_devices to {value}, "
+                    f"already assigned {len(self.assigned_device_indices)} devices."
+                )
+
         self._min_devices = value
 
     @property

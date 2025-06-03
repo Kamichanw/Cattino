@@ -1,12 +1,12 @@
-from functools import wraps
 import os
 import time
 import dill
 import sys
 import subprocess
-from pydantic import BaseModel, ConfigDict
-from typing import Dict, Optional, Sequence, Tuple
 import requests
+from functools import wraps
+from pydantic import BaseModel, ConfigDict
+from typing import Optional, Sequence, Tuple
 from fastapi import status
 
 from cattino import settings
@@ -191,7 +191,9 @@ def post_request(request: Optional["Request"] = None, **kwargs):
             if request
             else None
         ),
-        timeout=settings.timeout if settings.timeout > 0 else None,
+        timeout=kwargs.pop(
+            "timeout", settings.timeout if settings.timeout > 0 else None
+        ),
         **kwargs,
     )
 
@@ -209,7 +211,9 @@ def get_request(url: str, **kwargs):
     """
     return requests.get(
         url,
-        timeout=settings.timeout if settings.timeout > 0 else None,
+        timeout=kwargs.pop(
+            "timeout", settings.timeout if settings.timeout > 0 else None
+        ),
         **kwargs,
     )
 
@@ -424,4 +428,5 @@ def start_backend(
     if blocking:
         proc.wait()
     else:
-        time.sleep(3)
+        while not Request.test().ok():
+            time.sleep(1)

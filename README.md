@@ -8,8 +8,8 @@
 # Installation
 In the current version, only installation from source is supported.
 ```bash
-git clone https://github.com/Kamichanw/cattino.git
-cd ./cattino
+git clone https://github.com/Kamichanw/Cattino.git
+cd ./Cattino
 pip install -e .
 ```
 Once the installation is complete, you can use `meow meow` in the command line terminal. If the installation is successful, it will output the current version number.

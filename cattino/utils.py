@@ -86,7 +86,7 @@ def get_cattino_home() -> str:
             # if user installed cattino with editable mode, the source code will be
             # located in os.path.join(os.getcwd(), "cattino"). we can't save logs in
             # source dir, because `meow clean` will delete source code unexpectedly.
-            if "setup.py" not in os.listdir(path):
+            if "__init__.py" not in os.listdir(path):
                 return path
     os.makedirs(DEFAULT_CATTINO_HOME, exist_ok=True)
     return DEFAULT_CATTINO_HOME
@@ -329,15 +329,6 @@ class Magics:
             **settings.resolvers,
             name: func,
         }
-
-    @classmethod
-    def register_new_variable(cls, name: str):
-        """Register a new magic variable."""
-        from cattino.settings import settings
-
-        if not isinstance(name, str):
-            raise ValueError(f"Variable {name} is not a string.")
-        settings.magic_vars = list(set(settings.magic_vars + [name]))
 
     @classmethod
     def register_new_constant(cls, name: str, value: str):

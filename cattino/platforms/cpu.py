@@ -12,9 +12,7 @@ class CpuPlatform(Platform):
     device_type: str = "cpu"
 
     @classmethod
-    def get_device_control_env_var(
-        cls, device_ids: List[int]
-    ) -> Dict[str, Any]:
+    def get_device_control_env_var(cls, device_ids: List[int]) -> Dict[str, Any]:
         """
         Returns the environment variables to control device visibility.
         For CPU, no device control is necessary.
@@ -22,7 +20,7 @@ class CpuPlatform(Platform):
         return {}
 
     @classmethod
-    def get_all_deivce_indeces(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> List[int]:
         """
         Returns the number of available CPU devices.
         For CPU, only one device exists.
@@ -54,7 +52,7 @@ class CpuPlatform(Platform):
         """
         vm = psutil.virtual_memory()
         return vm.total // (1024**2)
-    
+
     @classmethod
     def get_device_free_memory(cls, device_id: int = 0) -> int:
         """
@@ -69,7 +67,7 @@ class CpuPlatform(Platform):
         cls,
         pid_or_proc: Optional[Union[int, Process]] = None,
         device_id: int = 0,
-        include_children: Optional[bool] = False,
+        include_children: bool = False,
     ) -> int:
         """
         Queries the memory usage of a specific process or all process in the system's RAM (in MB).
@@ -78,9 +76,9 @@ class CpuPlatform(Platform):
             pid_or_proc (int or psutil.Process, optional):
                 The process ID or a Process object to query.
                 If None, returns memory usage for all processes.
-            device_id (int, optional):
+            device_id (int):
                 Not applicable in a CPU environment; ignored.
-            include_children (bool, optional):
+            include_children (bool):
                 If True, includes the memory usage of child processes. Defaults to False.
 
         Returns:

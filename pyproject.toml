@@ -8,3 +8,6 @@ check_untyped_defs = true
 follow_imports = "skip"
 exclude = [ "^cattino/third_party/.*",]
 
+[tool.pyright]
+exclude = [ "^cattino/third_party/.*",]
+

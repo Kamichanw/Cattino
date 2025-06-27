@@ -55,7 +55,7 @@ class Platform:
         return self._enum in (PlatformEnum.CUDA, PlatformEnum.ROCM)
 
     @classmethod
-    def get_all_deivce_indeces(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> List[int]:
         """Get all logic indices of available devices"""
         raise NotImplementedError
 
@@ -94,7 +94,7 @@ class Platform:
         cls,
         pid_or_proc: Optional[Union[int, Process]] = None,
         device_id: int = 0,
-        include_children: Optional[bool] = None,
+        include_children: bool = False,
     ) -> int:
         """
         Query the device memory usage of a specific process or all process. Optionally, include the memory usage of the process's children.
@@ -105,7 +105,7 @@ class Platform:
                 process. Defaults to None.
             device_id (int):
                 The device index to filter by. Defaults to 0.
-            include_children (bool, *optional*):
+            include_children (bool):
                 If True, includes the memory usage of child processes. Defaults to False.
         """
         raise NotImplementedError

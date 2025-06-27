@@ -19,7 +19,7 @@ class ProcTask(DeviceRequiredTask):
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
         priority: int = 1,
-        requires_memory_per_device: int = 0,
+        requires_memory_per_device: Union[int, float] = 0,
         min_devices: int = 1,
     ) -> None:
         """
@@ -27,11 +27,12 @@ class ProcTask(DeviceRequiredTask):
 
         Args:
             cmd (str): A magic string representing the command to execute.
-            env (Optional[Dict[str, Any]], optional): Environment variables for the task.
-            task_name (Optional[str], optional): Name of the task.
-            priority (int, optional): Task priority.
-            requires_memory_per_device (int, optional): Memory required per device in MiB.
-            min_devices (int, optional): Minimum number of devices required.
+            env (Dict[str, Any], *optional*): Environment variables for the task.
+            task_name (str, *optional*): Name of the task.
+            priority (int, *optional*): Task priority.
+            requires_memory_per_device (int or float): Memory required per device in MiB, or
+                as a ratio of total memory (0-1).
+            min_devices (int, *optional*): Minimum number of devices required.
         """
         ...
 
@@ -42,7 +43,7 @@ class ProcTask(DeviceRequiredTask):
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
         priority: int = 1,
-        requires_memory_per_device: int = 0,
+        requires_memory_per_device: Union[int, float] = 0,
         min_devices: int = 1,
     ) -> None:
         """
@@ -50,11 +51,12 @@ class ProcTask(DeviceRequiredTask):
 
         Args:
             func (Callable): A callable without any params to be executed in a new process.
-            env (Optional[Dict[str, Any]], optional): Environment variables for the task.
-            task_name (Optional[str], optional): Name of the task.
-            priority (int, optional): Task priority.
-            requires_memory_per_device (int, optional): Memory required per device in MiB.
-            min_devices (int, optional): Minimum number of devices required.
+            env (Dict[str, Any], *optional*): Environment variables for the task.
+            task_name (str, *optional*): Name of the task.
+            priority (int, *optional*): Task priority.
+            requires_memory_per_device (int or float): Memory required per device in MiB, or
+                as a ratio of total memory (0-1).
+            min_devices (int, *optional*): Minimum number of devices required.
         """
         ...
 
@@ -64,17 +66,18 @@ class ProcTask(DeviceRequiredTask):
         env: Optional[Dict[str, Any]] = None,
         task_name: Optional[str] = None,
         priority: int = 1,
-        requires_memory_per_device: int = 0,
+        requires_memory_per_device: Union[int, float] = 0,
         min_devices: int = 1,
     ) -> None:
+        self._proc: Optional[Union[subprocess.Popen, multiprocessing.Process]] = None
+        self._is_cancelled = False
+
         super().__init__(
             task_name=task_name,
             priority=priority,
             requires_memory_per_device=requires_memory_per_device,
             min_devices=min_devices,
         )
-        self._proc: Optional[Union[subprocess.Popen, multiprocessing.Process]] = None
-        self._is_cancelled = False
 
         if callable(cmd_or_func):
             self._target_fn = cmd_or_func
@@ -87,6 +90,8 @@ class ProcTask(DeviceRequiredTask):
             self.cmd = cmd_or_func
 
         self.env = env
+        self.min_devices = min_devices
+        self.requires_memory_per_device = requires_memory_per_device
 
     @property
     def pid(self) -> Optional[int]:
@@ -106,7 +111,7 @@ class ProcTask(DeviceRequiredTask):
             TaskStatus.Failed,
         ]:
             return
-        
+
         self._is_cancelled = True
 
     @property
@@ -124,6 +129,18 @@ class ProcTask(DeviceRequiredTask):
                 return TaskStatus.Running
             exitcode = self._proc.exitcode
         return TaskStatus.Done if exitcode == 0 else TaskStatus.Failed
+
+    @DeviceRequiredTask.requires_memory_per_device.setter
+    def requires_memory_per_device(self, value: Union[int, float]) -> None:
+        if self.pid is not None:
+            if any(
+                self._allocator.get_proc_memory_usage(self.pid, device_id) > value
+                for device_id in self.assigned_device_indices or []
+            ):
+                raise ValueError(
+                    f"Task {self.name} requires more memory than the specified limit per device."
+                )
+        super(ProcTask, type(self)).requires_memory_per_device.__set__(self, value) # type: ignore
 
     @property
     def is_ready(self) -> bool:
@@ -185,6 +202,8 @@ class ProcTask(DeviceRequiredTask):
             elif isinstance(self._proc, multiprocessing.Process):
                 self._proc.join(timeout)
                 exitcode = self._proc.exitcode
+            else:
+                assert False, "Unknown process type"
 
             if exitcode == CATTINO_RETRY_EXIT_CODE:
                 self.resume()
@@ -200,7 +219,7 @@ class ProcTask(DeviceRequiredTask):
 
     def terminate(self, force: bool = False) -> None:
         if self.status == TaskStatus.Running:
-            self._proc.kill() if force else self._proc.terminate() # type: ignore
+            self._proc.kill() if force else self._proc.terminate()  # type: ignore
 
     def on_end(self) -> None:
         super().on_end()

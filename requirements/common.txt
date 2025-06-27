@@ -9,3 +9,4 @@ python-multipart
 aiorwlock
 loguru
 networkx
+psutil

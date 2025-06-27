@@ -37,13 +37,13 @@ class AscendPlatform(Platform):
         }
 
     @classmethod
-    def get_all_deivce_indeces(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> List[int]:
         raise NotImplementedError
 
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
         return torch.npu.get_device_name(device_id)  # type: ignore
-    
+
     @classmethod
     def get_device_free_memory(cls, device_id: int = 0) -> int:
         return 0

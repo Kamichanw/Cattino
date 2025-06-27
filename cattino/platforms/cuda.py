@@ -62,7 +62,7 @@ class CudaPlatform(Platform):
         }
 
     @classmethod
-    def get_all_deivce_indeces(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> List[int]:
         return list(range(torch.cuda.device_count()))
 
     @classmethod
@@ -99,7 +99,7 @@ class CudaPlatform(Platform):
         cls,
         pid_or_proc: Optional[Union[int, psutil.Process]] = None,
         device_id: int = 0,
-        include_children: Optional[bool] = None,
+        include_children: bool = False,
     ):
         if pid_or_proc is None:
             target_pids = None

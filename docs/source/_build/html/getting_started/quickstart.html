@@ -1,0 +1,643 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Introduction &#8212; Cattino 0.1.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/togglebutton.css?v=13237357" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=c966f9a8" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../_static/documentation_options.js?v=a1637f0b"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    <script>let toggleHintShow = 'Click to show';</script>
+    <script>let toggleHintHide = 'Click to hide';</script>
+    <script>let toggleOpenOnPrint = 'true';</script>
+    <script src="../_static/togglebutton.js?v=4a39c7ea"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'getting_started/quickstart';</script>
+    <script src="../_static/custom.js?v=f96b87c6"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Magic String" href="../core/magic_string.html" />
+    <link rel="prev" title="Welcome to Cattino" href="../index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Cattino 0.1.0 documentation</p>
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Introduction</a></li>
+
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Core Concepts</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../core/magic_string.html">Magic String</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">API</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api/tasks/index.html">Cattino Tasks</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/tasks/task.html">Task</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/tasks/task_group.html">TaskGroup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/tasks/device_required_task.html">DeviceRequiredTask</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/tasks/proc_task.html">ProcTask</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/tasks/task_graph.html">TaskGraph</a></li>
+</ul>
+</details></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-source-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Source repositories">
+    <i class="fab fa-github"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="https://github.com/Kamichanw/Cattino" target="_blank"
+   class="btn btn-sm btn-source-repository-button dropdown-item"
+   title="Source repository"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fab fa-github"></i>
+  </span>
+<span class="btn__text-container">Repository</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/Kamichanw/Cattino/edit/main/docs/source/getting_started/quickstart.md" target="_blank"
+   class="btn btn-sm btn-source-edit-button dropdown-item"
+   title="Suggest edit"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-pencil-alt"></i>
+  </span>
+<span class="btn__text-container">Suggest edit</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li><a href="https://github.com/Kamichanw/Cattino/issues/new?title=Issue%20on%20page%20%2Fgetting_started/quickstart.html&body=Your%20issue%20content%20here." target="_blank"
+   class="btn btn-sm btn-source-issues-button dropdown-item"
+   title="Open an issue"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-lightbulb"></i>
+  </span>
+<span class="btn__text-container">Open issue</span>
+</a>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/getting_started/quickstart.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Introduction</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Introduction</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-tasks-to-be-scheduled">How Tasks to be Scheduled?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logs">Logs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-test-and-exit">Run, Test and Exit</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#create-tasks">Create Tasks</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#create-from-command">Create from Command</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#create-from-python-scripts">Create from Python Scripts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passing-arguments">Passing Arguments</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integrate-with-hydra">Integrate with <code class="docutils literal notranslate"><span class="pre">hydra</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <p>In this document, I will demonstrate all the common usages of <code class="docutils literal notranslate"><span class="pre">cattino</span></code>. You can also directly view the help by running <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">&lt;command&gt;</span> <span class="pre">--help</span></code>.</p>
+<section id="introduction">
+<h1>Introduction<a class="headerlink" href="#introduction" title="Link to this heading">#</a></h1>
+<p>When you first create a task, <code class="docutils literal notranslate"><span class="pre">cattino</span></code> will start a local server in the background. All commands are executed by sending instructions to this server. You can specify the host and port by setting the environment variables <code class="docutils literal notranslate"><span class="pre">CATTINO_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">CATTINO_PORT</span></code>.</p>
+<section id="how-tasks-to-be-scheduled">
+<h2>How Tasks to be Scheduled?<a class="headerlink" href="#how-tasks-to-be-scheduled" title="Link to this heading">#</a></h2>
+<p>Each task has a creation time (<code class="docutils literal notranslate"><span class="pre">task.create_time</span></code>) and a priority (<code class="docutils literal notranslate"><span class="pre">task.priority</span></code>). When tasks meet preconditions, e.g. device requirements, <code class="docutils literal notranslate"><span class="pre">cattino</span></code> always runs tasks in the following order:</p>
+<ol class="arabic simple">
+<li><p>Tasks with no dependencies or whose dependencies have all been executed.</p></li>
+<li><p>Tasks with the highest priority.</p></li>
+<li><p>Tasks with the earliest creation time.</p></li>
+</ol>
+</section>
+<section id="logs">
+<h2>Logs<a class="headerlink" href="#logs" title="Link to this heading">#</a></h2>
+<p>By default, the backend server and task outputs are automatically saved to <code class="docutils literal notranslate"><span class="pre">~/.cache/cattino/</span></code>. You can change this save path by setting the environment variable <code class="docutils literal notranslate"><span class="pre">CATTINO_HOME</span></code>.</p>
+<p>The specific path is related to the creation time of the backend. For example, if you open the backend on April 9, 2025, at 23:02:50, all tasks created on this backend will have their outputs saved to <code class="docutils literal notranslate"><span class="pre">{CATTINO_HOME}/2025-04-09/23-02-50/{task-name}</span></code>.</p>
+<blockquote>
+<div><p>Although you can specify the format of the save directory by modifying the environment variable <code class="docutils literal notranslate"><span class="pre">CACHE_DIR_FORMAT</span></code>, I do not recommend doing so.
+The default format is the same as the <code class="docutils literal notranslate"><span class="pre">hydra</span></code> log directory format, making it more convenient for use with <code class="docutils literal notranslate"><span class="pre">hydra</span></code>.</p>
+</div></blockquote>
+<p>Finally, you can clean cache logs with <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">clean</span></code>, use <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">clean</span> <span class="pre">--help</span></code> to see details.</p>
+</section>
+<section id="run-test-and-exit">
+<h2>Run, Test and Exit<a class="headerlink" href="#run-test-and-exit" title="Link to this heading">#</a></h2>
+<p>Sometimes, you may want to directly observe the backend’s output, especially when exceptions thrown by tasks are written directly to the backend’s stderr. In such cases, you can use <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">run</span></code>. It will start the server directly in the terminal.</p>
+<p>To check whether the backend server is running, you can use <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">test</span></code>. This command can also be used to check if a specific task is running: <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">test</span> <span class="pre">{task-name}</span></code>. If it is running, you will get the process ID (PID).</p>
+<p>To exit <code class="docutils literal notranslate"><span class="pre">cattino</span></code>, you can use <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">exit</span></code>. This will send a kill signal to all running tasks and shut down the server process.</p>
+</section>
+</section>
+<section id="create-tasks">
+<h1>Create Tasks<a class="headerlink" href="#create-tasks" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">cattino</span></code> supports two methods for creating tasks:</p>
+<ol class="arabic simple">
+<li><p>By using a string: <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">create</span> <span class="pre">&quot;command&quot;</span></code>.</p></li>
+<li><p>By running a Python file and exporting the task object from it: <code class="docutils literal notranslate"><span class="pre">meow</span> <span class="pre">create</span> <span class="pre">script.py</span></code>.</p></li>
+</ol>
+<section id="create-from-command">
+<h2>Create from Command<a class="headerlink" href="#create-from-command" title="Link to this heading">#</a></h2>
+<p>If you only want to run individual tasks without writing extra code, creating tasks from a command is the most recommended approach. If you have a training script <code class="docutils literal notranslate"><span class="pre">train.py</span></code>, which requires 2 devices with 20000M memory each, you can dispatch the task using the following command:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>meow<span class="w"> </span>create<span class="w"> </span><span class="s2">&quot;python train.py&quot;</span><span class="w"> </span>--task-name<span class="w"> </span>train<span class="w"> </span>--min-devices<span class="w"> </span><span class="m">2</span><span class="w"> </span>--requires-memory-per-device<span class="w"> </span><span class="m">20000</span>
+</pre></div>
+</div>
+<p>If sufficient devices are available, the task will start immediately. Otherwise, it will wait until the conditions are met.</p>
+<blockquote>
+<div><p>[!NOTE]
+If you create a task via command, I recommend specifying a task name using <code class="docutils literal notranslate"><span class="pre">--task-name/-n</span></code> during creation. Otherwise, a 5-character name will be automatically generated, making it difficult to track the results.</p>
+</div></blockquote>
+</section>
+<section id="create-from-python-scripts">
+<h2>Create from Python Scripts<a class="headerlink" href="#create-from-python-scripts" title="Link to this heading">#</a></h2>
+<p>If you need to create complex task dependencies (for example, performing evaluation only after the training task), you must create a separate Python script to handle this. Consider that you have two scripts, <code class="docutils literal notranslate"><span class="pre">train.py</span></code> and <code class="docutils literal notranslate"><span class="pre">eval.py</span></code>, for training and evaluation respectively. You can create a <code class="docutils literal notranslate"><span class="pre">task.py</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># task.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">cattino</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cattino.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProcTask</span><span class="p">,</span> <span class="n">TaskGroup</span>
+
+<span class="n">train_task</span> <span class="o">=</span> <span class="n">ProcTask</span><span class="p">(</span>
+    <span class="s2">&quot;python train.py&quot;</span><span class="p">,</span>
+    <span class="n">task_name</span><span class="o">=</span><span class="s2">&quot;train&quot;</span><span class="p">,</span>
+    <span class="n">min_devices</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">requires_memory_per_device</span><span class="o">=</span><span class="mi">20000</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">eval_task</span> <span class="o">=</span> <span class="n">ProcTask</span><span class="p">(</span>
+    <span class="s2">&quot;python eval.py&quot;</span><span class="p">,</span>
+    <span class="n">task_name</span><span class="o">=</span><span class="s2">&quot;eval&quot;</span><span class="p">,</span>
+    <span class="n">min_devices</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">requires_memory_per_device</span><span class="o">=</span><span class="mi">20000</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">graph</span> <span class="o">=</span> <span class="n">TaskGroup</span><span class="p">(</span>
+    <span class="p">[</span><span class="n">train_task</span><span class="p">,</span> <span class="n">eval_task</span><span class="p">],</span> <span class="n">execute_strategy</span><span class="o">=</span><span class="s2">&quot;sequential&quot;</span><span class="p">,</span> <span class="n">group_name</span><span class="o">=</span><span class="s2">&quot;pipeline&quot;</span>
+<span class="p">)</span>
+
+<span class="c1"># export task object with cattino.export</span>
+<span class="n">cattino</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="n">graph</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">ProcTask</span></code> accepts a command string or a function as input, and it will run as a subprocess when the device conditions are met.
+<code class="docutils literal notranslate"><span class="pre">TaskGroup</span></code> accepts a task list or a <code class="docutils literal notranslate"><span class="pre">TaskGraph</span></code>, assembling multiple tasks and executing them in the form of a directed acyclic graph.
+Once everything is set up, you also need to use <code class="docutils literal notranslate"><span class="pre">cattino.export</span></code> to export the task or task group so that <code class="docutils literal notranslate"><span class="pre">cattino</span></code> can discover the object.</p>
+</section>
+<section id="passing-arguments">
+<h2>Passing Arguments<a class="headerlink" href="#passing-arguments" title="Link to this heading">#</a></h2>
+<p>A command to be executed usually allows multiple options to perform more complex functions. Suppose <code class="docutils literal notranslate"><span class="pre">train.py</span></code> uses <code class="docutils literal notranslate"><span class="pre">argparse</span></code> to accept <code class="docutils literal notranslate"><span class="pre">--lr</span></code> to set the learning rate. You can use:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>meow<span class="w"> </span>create<span class="w"> </span><span class="s2">&quot;python train.py&quot;</span><span class="w"> </span>--<span class="w"> </span>--lr<span class="w"> </span><span class="m">0</span>.3
+<span class="c1"># equals to `meow create &quot;python train.py --lr 0.3&quot;`</span>
+</pre></div>
+</div>
+<p>All options after <code class="docutils literal notranslate"><span class="pre">--</span></code> will be passed directly to <code class="docutils literal notranslate"><span class="pre">train.py</span></code>. When <code class="docutils literal notranslate"><span class="pre">--multirun/-m</span></code> is enabled, if the additional options are provided as a list, the command will be expanded:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">meow</span> <span class="n">create</span> <span class="s2">&quot;python train.py&quot;</span> <span class="o">-</span><span class="n">m</span> <span class="o">--</span> <span class="o">--</span><span class="n">lr</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span><span class="mf">0.3</span><span class="p">]</span>
+<span class="c1"># equals to </span>
+<span class="c1"># meow create &quot;python train.py --lr 0.1&quot;</span>
+<span class="c1"># meow create &quot;python train.py --lr 0.3&quot;</span>
+</pre></div>
+</div>
+<blockquote>
+<div><p>Make sure that the task names are different, otherwise an exception will be thrown due to attempting to execute duplicate tasks.</p>
+</div></blockquote>
+</section>
+<section id="integrate-with-hydra">
+<h2>Integrate with <code class="docutils literal notranslate"><span class="pre">hydra</span></code><a class="headerlink" href="#integrate-with-hydra" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">Hydra</span></code> saves the configurations of a running application to a specific folder, which is specified by <code class="docutils literal notranslate"><span class="pre">hydra.run.dir</span></code> (see the <a class="reference external" href="https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/">official documentation</a>). It is very convenient to save both <code class="docutils literal notranslate"><span class="pre">hydra</span></code> output files and <code class="docutils literal notranslate"><span class="pre">cattino</span></code> task outputs to the same directory. To achieve this, you can use <code class="docutils literal notranslate"><span class="pre">cattino</span></code> like this:</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>meow<span class="w"> </span>create<span class="w"> </span><span class="s2">&quot;python train.py&quot;</span><span class="w"> </span>--<span class="w"> </span>hydra.run.dir<span class="o">=</span><span class="s2">&quot;\${run_dir}/\${task_name}&quot;</span>
+</pre></div>
+</div>
+<p>Here, <code class="docutils literal notranslate"><span class="pre">${run_dir}</span></code> and <code class="docutils literal notranslate"><span class="pre">${task_name}</span></code> are cattino’s Magic variables (see <a class="reference internal" href="#magic-string"><span class="xref myst">Magic String</span></a>), which will be replaced with the actual run directory and task name when the command is executed.</p>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Welcome to Cattino</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../core/magic_string.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Magic String</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Introduction</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-tasks-to-be-scheduled">How Tasks to be Scheduled?</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#logs">Logs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-test-and-exit">Run, Test and Exit</a></li>
+</ul>
+</li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#create-tasks">Create Tasks</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#create-from-command">Create from Command</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#create-from-python-scripts">Create from Python Scripts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passing-arguments">Passing Arguments</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integrate-with-hydra">Integrate with <code class="docutils literal notranslate"><span class="pre">hydra</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Kamichanw
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  <p class="copyright">
+    
+      © Copyright 2025, Kamichanw.
+      <br/>
+    
+  </p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

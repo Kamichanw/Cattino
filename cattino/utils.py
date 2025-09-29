@@ -95,6 +95,15 @@ def get_cattino_home() -> str:
 
 
 @overload
+def get_cache_dir(backend_pid: Optional[int] = None) -> str:
+    """
+    Get the current cache directory. Since the cache directory is based on the create time of the backend process,
+    this function needs the process ID. If the process ID is not provided, it will use the current process ID.
+    """
+    ...
+
+
+@overload
 def get_cache_dir(filename: str, backend_pid: Optional[int] = None) -> str:
     """
     Get the current cache directory with given filename. Since the cache directory is based on the create time of the backend process,
@@ -112,18 +121,41 @@ def get_cache_dir(task: "AbstractTask", backend_pid: Optional[int] = None) -> st
     ...
 
 
-def get_cache_dir(filename_or_task, backend_pid=None) -> str:  # type: ignore
+def get_cache_dir(*args, **kwargs) -> str:
+    task, filename, backend_pid = (
+        kwargs.get("task"),
+        kwargs.get("filename"),
+        kwargs.get("backend_pid"),
+    )
+    if len(args) == 1:
+        if isinstance(args[0], str):
+            filename = args[0]
+        elif args[0] is None or isinstance(args[0], int):
+            backend_pid = args[0]
+        else:
+            task = args[0]
+    elif len(args) == 2:
+        if isinstance(args[0], str):
+            filename = args[0]
+        else:
+            task = args[0]
+        backend_pid = args[1]
 
-    if isinstance(filename_or_task, str):
+    if task is not None and filename is not None:
+        raise ValueError("Only one of task and filename should be provided.")
+
+    if filename is not None:
         format_str = Magics.resolve(
-            CACHE_DIR_FORMAT, task_name=filename_or_task, fullname=filename_or_task
+            CACHE_DIR_FORMAT, task_name=filename, fullname=filename
         )
-    else:
+    elif task is not None:
         format_str = Magics.resolve(
             CACHE_DIR_FORMAT,
-            task_name=filename_or_task.name,
-            fullname=filename_or_task.fullname,
+            task_name=task.name,
+            fullname=task.fullname,
         )
+    else:
+        format_str = Magics.resolve(CACHE_DIR_FORMAT, task_name="", fullname="")
 
     cache_dir = os.path.join(
         get_cattino_home(),
@@ -358,11 +390,10 @@ class InterceptHandler(logging.Handler):
         )
 
 
-def setup_logger():
+def setup_logger(colorize: bool = True):
     """
     Replace the fastapi logger with loguru logger.
     """
-    logger.configure(extra={"request_id": ""})
     logger.remove()
 
     log_format = (
@@ -374,17 +405,28 @@ def setup_logger():
 
     from cattino.settings import settings
 
+    seen_once_messages = set()
+
+    def log_filter(record) -> bool:
+        if record["extra"].get("once"):
+            message_key = (record["message"], record["file"].path, record["line"])
+            if message_key in seen_once_messages:
+                return False
+            seen_once_messages.add(message_key)
+        
+        if not settings.debugging:
+            return record["level"].no > logger.level("INFO").no
+        return True
+
     logger.add(
         sys.stdout,
         format=log_format,
         level="DEBUG",
-        filter=lambda record: (
-            record["level"].no < logger.level("INFO").no if settings.debugging else True
-        ),
+        filter=log_filter,
         enqueue=True,
         backtrace=False,
         diagnose=True,
-        colorize=True,
+        colorize=colorize,
     )
 
     logger_name_list = [name for name in logging.root.manager.loggerDict]

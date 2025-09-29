@@ -115,6 +115,7 @@ class ProcTask(DeviceRequiredTask):
         ]:
             return
         self.terminate(force=True)
+        self.release_devices()
         self._is_cancelled = True
 
     @property
@@ -175,7 +176,7 @@ class ProcTask(DeviceRequiredTask):
             self.cmd = Magics.resolve(
                 self.cmd,
                 task_name=self.name,
-                run_dir=get_cache_dir(""),
+                run_dir=get_cache_dir(),
                 fullname=self.fullname,
             )
             self._proc = subprocess.Popen(
@@ -210,10 +211,9 @@ class ProcTask(DeviceRequiredTask):
 
             if exitcode == CATTINO_RETRY_EXIT_CODE:
                 self.resume()
-                # the status of the process has been changed
-                # to waiting, the on_end will not be called, so we
-                # need to call it manually
-                self.on_end()
+                # the status of the process has been changed to waiting, the on_end will not be called, so we
+                # need to release devices manually
+                self.release_devices()
 
     def resume(self) -> None:
         if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:

@@ -4,7 +4,6 @@ import aiorwlock
 from dataclasses import dataclass, field
 from loguru import logger
 from typing import (
-    Any,
     Iterable,
     List,
     Dict,
@@ -17,6 +16,8 @@ from cattino.core.path_tree import PathTree
 from cattino.tasks.interface import AbstractTask, Task, TaskGroup, TaskStatus
 from cattino.tasks.task_graph import TaskGraph
 from cattino.settings import settings
+from cattino.comms import MsgBoxRequest
+from cattino.utils import get_cache_dir
 
 
 @dataclass
@@ -153,13 +154,16 @@ class TaskScheduler:
                         t.cancel()
                         self._remove_from_group_info(t)
 
-                if (
-                    settings.cascade_cancel_on_failure
-                    and task.status == TaskStatus.Failed
-                ):
-                    async with self._task_graph_lock.writer_lock:
-                        async with self._group_info_lock:
-                            cascade_cancel(task)
+                if task.status == TaskStatus.Failed:
+
+                    MsgBoxRequest.error(
+                        f"Task failed, please check logs in {get_cache_dir(task)} for details.",
+                        tag=task.fullname,
+                    )
+                    if settings.cascade_cancel_on_failure:
+                        async with self._task_graph_lock.writer_lock:
+                            async with self._group_info_lock:
+                                cascade_cancel(task)
 
                 async with self._group_info_lock:
                     post_hook_tasks = gather_post_hook_tasks(task)
@@ -350,7 +354,8 @@ class TaskScheduler:
                 if hasattr(self._task_graph.nx_graph.nodes[task], "started"):
                     del self._task_graph.nx_graph.nodes[task]["started"]
             async with self._group_info_lock:
-                self._group_info[task].remaining.add(task)
+                if task in self._group_info:
+                    self._group_info[task].remaining.add(task)
 
     async def remove(self, tasks: Sequence[Task]) -> None:
         """

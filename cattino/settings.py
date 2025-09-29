@@ -85,6 +85,12 @@ class Settings(BaseModel):
         CATTINO_PORT,
         description=f"The port to use for the cattino server. Defaults to {CATTINO_PORT}.",
     )
+    msgbox_port: int = Field(
+        CATTINO_PORT + 1,
+        description=(
+            f"The port to use for the cattino message box server. Defaults to {CATTINO_PORT + 1}."
+        ),
+    )
     host: str = Field(
         CATTINO_HOST,
         description=f"The host to use for the cattino server. Defaults to {CATTINO_HOST}.",

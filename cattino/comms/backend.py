@@ -9,7 +9,7 @@ from pathlib import Path
 
 from cattino.tasks.interface import AbstractTask
 from cattino.utils import get_cache_dir
-from cattino.comms.base import Request, Response, communicate
+from cattino.comms.base import Request, Response, Transmittable, communicate
 
 
 class TaskResponse(Response):
@@ -68,7 +68,7 @@ class BackendRequest(Request):
         super().__init__(**kwargs)
 
     @staticmethod
-    @communicate("create", TaskResponse)
+    @communicate("create", return_response_cls=TaskResponse)
     def create(
         tasks: Sequence[AbstractTask],
         extra_paths: Optional[Sequence[str]] = None,
@@ -91,13 +91,13 @@ class BackendRequest(Request):
             headers = None
 
         return Request.post(  # type: ignore
-            BackendRequest(tasks=tasks),
+            Transmittable(tasks=tasks),
             headers=headers,
             **kwargs,
         )
 
     @staticmethod
-    @communicate("kill", TaskResponse)
+    @communicate("kill", return_response_cls=TaskResponse)
     def kill(
         name: Optional[str], force: bool = False, use_regex: bool = False, **kwargs
     ) -> TaskResponse:
@@ -114,7 +114,7 @@ class BackendRequest(Request):
             TaskResponse: A response object containing the status code and details of the task killing.
         """
         return Request.post(  # type: ignore
-            BackendRequest(name=name, force=force, use_regex=use_regex), **kwargs
+            Transmittable(name=name, force=force, use_regex=use_regex), **kwargs
         )
 
     @staticmethod
@@ -136,7 +136,7 @@ class BackendRequest(Request):
         return Request.get(**kwargs, params={"filter": filter, "attrs": " ".join(attrs)})  # type: ignore
 
     @staticmethod
-    @communicate("set", Response)
+    @communicate("set")
     def set_task_attr(name: str, attr: str, value: str, **kwargs) -> Response:
         """
         Set a specific attribute of a task to a new value.
@@ -150,11 +150,11 @@ class BackendRequest(Request):
             Response: A response object containing the status code and details of the task modification.
         """
         return Request.post(
-            BackendRequest(name=name, attr=attr, value=value), **kwargs  # type: ignore
+            Transmittable(name=name, attr=attr, value=value), **kwargs  # type: ignore
         )
 
     @staticmethod
-    @communicate("cancel", TaskResponse)
+    @communicate("cancel", return_response_cls=TaskResponse)
     def cancel(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
         """
         Cancel tasks by name or regex expression. If no name is provided, all tasks will be cancelled.
@@ -167,10 +167,10 @@ class BackendRequest(Request):
         Returns:
             TaskResponse: A response object containing the status code and details of the task cancellation.
         """
-        return Request.post(BackendRequest(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+        return Request.post(Transmittable(name=name, use_regex=use_regex), **kwargs)  # type: ignore
 
     @staticmethod
-    @communicate("resume", TaskResponse)
+    @communicate("resume", return_response_cls=TaskResponse)
     def resume(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
         """
         Resume tasks by name or regex expression. If no name is provided, all tasks will be resumed.
@@ -183,10 +183,10 @@ class BackendRequest(Request):
         Returns:
             TaskResponse: A response object containing the status code and details of the task resumption.
         """
-        return Request.post(BackendRequest(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+        return Request.post(Transmittable(name=name, use_regex=use_regex), **kwargs)  # type: ignore
 
     @staticmethod
-    @communicate("remove", TaskResponse)
+    @communicate("remove", return_response_cls=TaskResponse)
     def remove(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
         """
         Remove tasks by name or regex expression. If no name is provided, all tasks will be removed.
@@ -199,7 +199,7 @@ class BackendRequest(Request):
         Returns:
             TaskResponse: A response object containing the status code and details of the task removal.
         """
-        return Request.post(BackendRequest(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+        return Request.post(Transmittable(name=name, use_regex=use_regex), **kwargs)  # type: ignore
 
     @staticmethod
     @communicate("exit")
@@ -242,7 +242,7 @@ def where() -> str:
     """
     if os.path.isdir(get_cache_dir("backend")):
         # if where is called in backend, return directly
-        return get_cache_dir("")
+        return get_cache_dir()
 
     response = BackendRequest.test()
     if response.error():
@@ -267,7 +267,6 @@ def start_backend(
         cmd.extend(["--host", host])
     if port:
         cmd.extend(["--port", str(port)])
-
     proc = subprocess.Popen(cmd)
 
     if blocking:

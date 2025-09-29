@@ -211,7 +211,7 @@ async def list(filter: Optional[str] = None, attrs: str = ""):
                 filter,
                 task_name=task.name,
                 fullname=task.fullname,
-                run_dir=get_cache_dir(""),
+                run_dir=get_cache_dir(),
             )
             try:
                 filter_fn = eval("lambda task: " + filter_body)

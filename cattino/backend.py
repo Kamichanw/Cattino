@@ -9,13 +9,21 @@ import sys
 import fastapi
 import uvicorn
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, redirect_stderr, redirect_stdout, ExitStack
 from typing import Callable, Optional
 from collections.abc import Sequence
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from loguru import logger
 
-from cattino.comms import BackendRequest, Response, TaskResponse
+from cattino.comms import (
+    BackendRequest,
+    Response,
+    TaskResponse,
+    Transmittable,
+    MsgBoxRequest,
+    start_msgbox,
+    send_msg_on_error,
+)
 from cattino.core.task_scheduler import TaskScheduler
 from cattino.tasks.interface import Task, TaskGroup, TaskStatus
 from cattino.settings import settings
@@ -33,18 +41,29 @@ from cattino.utils import (
 async def lifespan(app: FastAPI):
     cache_dir = get_cache_dir("backend")
     os.makedirs(cache_dir, exist_ok=True)
-    if app.state.redirect_output:
-        sys.stdout = open_redirected_stream(cache_dir, "stdout")
-        sys.stderr = open_redirected_stream(cache_dir, "stderr")
+    with ExitStack() as stack:
+        if app.state.redirect_output:
+            stdout = stack.enter_context(open_redirected_stream(cache_dir, "stdout"))
+            stderr = stack.enter_context(open_redirected_stream(cache_dir, "stderr"))
+            stack.enter_context(redirect_stdout(stdout))
+            stack.enter_context(redirect_stderr(stderr))
 
-    setup_logger()
-    shutdown_event = asyncio.Event()
-    task_scheduler = TaskScheduler()
-    app.state.task_scheduler = task_scheduler
+        setup_logger(
+            not app.state.redirect_output
+        )  # do not colorize if redirecting output to files
+        shutdown_event = asyncio.Event()
+        task_scheduler = TaskScheduler()
+        app.state.task_scheduler = task_scheduler
+        app.state.shutdown_event = shutdown_event
+        msgbox_proc = await start_msgbox(
+            app.state.host,
+            settings.msgbox_port,
+            cache_dir if app.state.redirect_output else None,
+        )
 
-    async def main_loop():
-        while not shutdown_event.is_set():
-            try:
+        # create main loop to schedule tasks
+        async def main_loop():
+            while not shutdown_event.is_set():
                 if not await task_scheduler.step():
                     if (
                         settings.shutdown_on_complete
@@ -53,25 +72,37 @@ async def lifespan(app: FastAPI):
                     ):
                         logger.info("All tasks are done, shutting down...")
                         shutdown_event.set()
-                        os.kill(os.getpid(), signal.SIGINT)
                     else:
                         await asyncio.sleep(5)
-            except Exception as e:
-                logger.exception("Error during task scheduling loop: %s", e)
-                await asyncio.sleep(5)
+            os.kill(os.getpid(), signal.SIGINT)
 
-    task_loop = asyncio.create_task(main_loop())
+        tasks = [asyncio.create_task(main_loop())]
 
-    yield
+        # read from msgbox stderr and stdout if not redirecting output
+        if not app.state.redirect_output:
 
-    shutdown_event.set()
-    await task_loop
-    await task_scheduler.remove(await task_scheduler.all_tasks)
-    if app.state.redirect_output:
-        sys.stdout.flush()
-        sys.stderr.flush()
-        sys.stdout.close()
-        sys.stderr.close()
+            async def read_stream(stream):
+                while not shutdown_event.is_set():
+                    if line := await stream.readline():
+                        print(line.decode("utf-8").rstrip())
+                    else:
+                        await asyncio.sleep(0.5)
+
+            if msgbox_proc.returncode is not None:
+                logger.info(
+                    "Message box is not running, some notifications may not be able to be seen in time."
+                )
+            else:
+                if msgbox_proc.stdout:
+                    tasks.append(asyncio.create_task(read_stream(msgbox_proc.stdout)))
+                if msgbox_proc.stderr:
+                    tasks.append(asyncio.create_task(read_stream(msgbox_proc.stderr)))
+
+        yield
+        
+        shutdown_event.set()
+        await asyncio.gather(*tasks)
+        await task_scheduler.remove(await task_scheduler.all_tasks)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -136,7 +167,7 @@ async def process_tasks(
     )
 
 
-def load_from_message(message: UploadFile = File(...), request: fastapi.Request = None):  # type: ignore
+def load_backend_request(message: UploadFile = File(...), request: fastapi.Request = None):  # type: ignore
     """
     Load the request from the uploaded file.
     """
@@ -158,27 +189,30 @@ def load_from_message(message: UploadFile = File(...), request: fastapi.Request 
 
 
 @app.post("/kill", response_model=TaskResponse)
-async def kill(request: BackendRequest = Depends(load_from_message)):
+@send_msg_on_error(tag="backend")
+async def kill(data: Transmittable = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
     return await process_tasks(
-        request.name,  # type: ignore
+        data.name,  # type: ignore
         scheduler.terminate,
         [TaskStatus.Running],
-        use_regex=request.use_regex,  # type: ignore
-        force=request.force,  # type: ignore
+        use_regex=data.use_regex,  # type: ignore
+        force=data.force,  # type: ignore
     )
 
 
 @app.post("/remove", response_model=TaskResponse)
-async def remove(request: BackendRequest = Depends(load_from_message)):
+@send_msg_on_error(tag="backend")
+async def remove(data: Transmittable = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
     return await process_tasks(
-        request.name, scheduler.remove, use_regex=request.use_regex  # type: ignore
+        data.name, scheduler.remove, use_regex=data.use_regex  # type: ignore
     )
 
 
 @app.post("/cancel", response_model=TaskResponse)
-async def cancel(request: BackendRequest = Depends(load_from_message)):
+@send_msg_on_error(tag="backend")
+async def cancel(request: BackendRequest = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
     return await process_tasks(
         request.name,  # type: ignore
@@ -189,7 +223,8 @@ async def cancel(request: BackendRequest = Depends(load_from_message)):
 
 
 @app.post("/resume", response_model=TaskResponse)
-async def resume(request: BackendRequest = Depends(load_from_message)):
+@send_msg_on_error(tag="backend")
+async def resume(request: BackendRequest = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
     return await process_tasks(
         request.name,  # type: ignore
@@ -200,6 +235,7 @@ async def resume(request: BackendRequest = Depends(load_from_message)):
 
 
 @app.get("/list", response_model=Response)
+@send_msg_on_error(tag="backend")
 async def list(filter: Optional[str] = None, attrs: str = ""):
     attrs = attrs.split()  # type: ignore
     scheduler: TaskScheduler = app.state.task_scheduler
@@ -211,7 +247,7 @@ async def list(filter: Optional[str] = None, attrs: str = ""):
                 filter,
                 task_name=task.name,
                 fullname=task.fullname,
-                run_dir=get_cache_dir(""),
+                run_dir=get_cache_dir(),
             )
             try:
                 filter_fn = eval("lambda task: " + filter_body)
@@ -239,7 +275,8 @@ async def list(filter: Optional[str] = None, attrs: str = ""):
 
 
 @app.post("/set", response_model=Response)
-async def set_task_attr(request: BackendRequest = Depends(load_from_message)):
+@send_msg_on_error(tag="backend")
+async def set_task_attr(request: BackendRequest = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
     name, attr, value = request.name, request.attr, request.value  # type: ignore
     task = await scheduler.get_task_object(name)
@@ -273,7 +310,8 @@ async def set_task_attr(request: BackendRequest = Depends(load_from_message)):
 
 
 @app.post("/create", response_model=TaskResponse)
-async def create_task(request: BackendRequest = Depends(load_from_message)):
+@send_msg_on_error(tag="backend")
+async def create_task(request: BackendRequest = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
     success, failure, no_op, exception = [], [], [], []
     for task in request.tasks:  # type: ignore
@@ -304,6 +342,7 @@ async def create_task(request: BackendRequest = Depends(load_from_message)):
 
 
 @app.get("/test", response_model=Response)
+@send_msg_on_error(tag="backend")
 async def test_backend():
     return Response(
         status_code=status.HTTP_200_OK,
@@ -314,6 +353,7 @@ async def test_backend():
 
 
 @app.get("/test/{name:path}", response_model=Response)
+@send_msg_on_error(tag="backend")
 async def test_task(name: str):
     scheduler: TaskScheduler = app.state.task_scheduler
     if (tasks := await scheduler.get_tasks(name)) is None:
@@ -348,12 +388,7 @@ async def test_task(name: str):
 async def exit():
     scheduler: TaskScheduler = app.state.task_scheduler
     await scheduler.remove(await scheduler.all_tasks)
-    if app.state.redirect_output:
-        sys.stdout.flush()
-        sys.stderr.flush()
-        sys.stdout.close()
-        sys.stderr.close()
-    os.kill(os.getpid(), signal.SIGINT)
+    app.state.shutdown_event.set()
     return Response(status_code=status.HTTP_200_OK)
 
 
@@ -379,12 +414,13 @@ async def exit():
 )
 def run(host: Optional[str], port: Optional[int], redirect_output: bool):
     app.state.redirect_output = redirect_output
+    app.state.host = host or settings.host
     logger.debug(
         f"Starting backend server on {host or settings.host}:{port or settings.port}, redirect_output={redirect_output}"
     )
     uvicorn.run(
         app,
-        host=host or settings.host,
+        host=app.state.host,
         port=port or settings.port,
         access_log=redirect_output and settings.debugging,
         log_config=None,

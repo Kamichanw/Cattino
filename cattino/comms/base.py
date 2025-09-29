@@ -4,35 +4,35 @@ import dill
 
 from functools import wraps
 from pydantic import BaseModel, ConfigDict
-from typing import Optional, Sequence
+from typing import Optional
 from fastapi import status
 
 from cattino import settings
 
 
-class Message(BaseModel):
+class Transmittable(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
     """
-    The message class that is used to pack the command and data into a message that can be used to communicate between
-    the CLI and the backend.
+    This class is used to pack the data into an object that can be used to communicate between
+    the client and the server.
     """
 
     def __init__(self, **kwargs):
         """
-        Pack the arguments into a message.
+        Pack the arguments into a transmittable object.
 
         Args:
             **kwargs: Additional keyword arguments for the command. These arguments will be
-                added as attributes of the message object.
+                added as attributes of the transmittable object.
         """
         super().__init__(**kwargs)
 
 
-class Response(Message):
+class Response(Transmittable):
     """
-    Once requests are processed by the backend, the backend will send a response message back to the CLI.
+    Once requests are processed by the server, the server will send a response message back to the client.
     """
 
     status_code: int
@@ -60,17 +60,18 @@ class Response(Message):
         return self.status_code >= 500
 
 
-class Request(Message):
+class Request(Transmittable):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     @classmethod
-    def post(cls, request: Optional["Request"] = None, **kwargs):
+    def post(cls, request: object = None, **kwargs):
         """
         Sends a POST request to the specified URL with the given request data.
 
         Args:
-            request (Request, *optional*): The request data to be sent.
+            request (object, *optional*): The request data to be sent.
+            **kwargs: Additional keyword arguments for the `request.post`.
 
         Returns:
             requests.Response: The response from the POST request.
@@ -99,7 +100,7 @@ class Request(Message):
 
         Args:
             url (str): The URL to send the GET request to.
-            **kwargs: Additional keyword arguments for the request.
+            **kwargs: Additional keyword arguments for the `request.get`.
 
         Returns:
             requests.Response: The response from the GET request.
@@ -115,12 +116,13 @@ class Request(Message):
 
 def communicate(
     endpoint: str,
-    expected_response_cls: type = Response,
+    port: int = settings.port,
+    return_response_cls: type = Response,
 ):
     """
-    Decorator to send a request to the backend within a context.
-    This decorator injects the target URL into the function and handles the response.
-    The response is expected to be a requests.Response object.
+    Decorator to send a request to the server.
+    This decorator injects the target URL into the function and convert the response (a requests.Response object)
+    into the expected response class.
     """
 
     def decorator(func):
@@ -128,7 +130,7 @@ def communicate(
         def wrapper(*args, **kwargs):
             response = None
             try:
-                url = f"http://{settings.host}:{settings.port}/{endpoint}"
+                url = f"http://{settings.host}:{port}/{endpoint}"
 
                 response = func(*args, **kwargs, url=url)
 
@@ -140,18 +142,18 @@ def communicate(
                 response_json: dict = response.json()
                 response_json.setdefault("status_code", response.status_code)
 
-                return expected_response_cls(**response_json)
+                return return_response_cls(**response_json)
 
             except requests.exceptions.ConnectionError:
                 return Response(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Backend is not running.",
+                    detail="server is not running.",
                 )
             except requests.exceptions.Timeout:
                 return Response(
                     status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                    detail="Backend is not responding. This may be due to an internal error. Please check the "
-                    "backend logs for details.",
+                    detail="server is not responding. This may be due to an internal error. Please check the "
+                    "server logs for details.",
                 )
             except requests.exceptions.RequestException as e:
                 return Response(

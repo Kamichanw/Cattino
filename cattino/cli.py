@@ -13,17 +13,21 @@ import time
 import click
 import psutil
 import rich
+import logging
 
 from rich.table import Table
+from rich.logging import RichHandler
 from rich.console import Console
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, List, Literal, Optional, Sequence, Tuple
 
 
 from cattino import settings
+from cattino.comms.msgbox import MessageLevel
 from cattino.constants import TASK_GLOBALS_KEY
-from cattino.comms import BackendRequest, Response, start_backend, where
+from cattino.comms import BackendRequest, Response, start_backend, where, MsgBoxRequest
 from cattino.core.path_tree import PathTree
 from cattino.tasks.proc_task import ProcTask
 from cattino.tasks.interface import DeviceRequiredTask, TaskGroup
@@ -57,23 +61,65 @@ def print_response(
         if msg:
             click.echo(msg)
 
-    if response.ok():
-        echo(success_msg)
-    else:
-        if response.error():
-            click.echo(response.detail)
-            sys.exit(1)
-        echo(success_msg)
-        echo(no_op_msg)
-        echo(failure_msg)
-        echo(response.detail)
+    echo(success_msg)
+    echo(no_op_msg)
+    echo(failure_msg)
 
 
 def get_path_tree_str(names: List[str]):
+    """
+    Convert a list of names to a path tree string, which collapses common prefixes and
+    groups siblings with curly braces.
+
+    Examples:
+        >>> get_path_tree_str(['a/b/c', 'a/b/d', 'a/e', 'f'])
+        "a/{b/{c, d}, e}, f"
+    """
     tree = PathTree()
     for name in names:
         tree.set_node(name, None)
     return str(tree)
+
+
+logger = logging.getLogger("mailbox_logger")
+logger.setLevel(logging.INFO)
+logger.addHandler(
+    RichHandler(
+        level="INFO",
+        console=Console(color_system="auto"),
+        show_time=True,
+        show_level=True,
+        show_path=False,
+        markup=True,
+        keywords=None,
+        log_time_format="%H:%M:%S",
+    )
+)
+logger.propagate = False
+
+
+def fetch_from_msgbox(func):
+    """
+    Fetch messages from the message box and log them.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        response = MsgBoxRequest.fetch()
+        if hasattr(response, "messages"):
+            for message in response.messages:
+                logger.log(
+                    message.level,
+                    (
+                        f"[bold magenta]{message.tag}[/bold magenta]: {message.content}"
+                        if message.tag
+                        else message.content
+                    ),
+                )
+
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 class MagicString(click.ParamType):
@@ -227,17 +273,8 @@ def run(host: Optional[str], port: Optional[int]):
 
 
 @main.command()
-def meow():
-    """
-    Meow meow~
-    """
-    import pkg_resources  # type: ignore[import]
-
-    click.echo(f"Cattino: {pkg_resources.get_distribution('cattino').version}")
-
-
-@main.command()
 @click.argument("name", type=str, required=False)
+@fetch_from_msgbox
 def test(name: Optional[str]):
     """
     Test whether the backend or a specific tasks is running. If the query target is running,
@@ -302,6 +339,7 @@ def test(name: Optional[str]):
     help='Expand list arguments after "--" into multiple independent commands.',
 )
 @click.argument("args", nargs=-1)
+@fetch_from_msgbox
 def create(
     input: str,
     task_name: Optional[str],
@@ -502,6 +540,7 @@ def create(
     help="Filter tasks by a python expression that accept a argument 'task'.",
 )
 @click.argument("attrs", nargs=-1, type=str, required=False)
+@fetch_from_msgbox
 def list(filter: Optional[str], attrs: Tuple[str, ...]):
     """
     List specified attributes of tasks that match the given condition.
@@ -536,6 +575,7 @@ def list(filter: Optional[str], attrs: Tuple[str, ...]):
     default="stdout",
     help="Stream to watch. Defaults to stdout.",
 )
+@fetch_from_msgbox
 def watch(fullname: Optional[str], stream: str):
     """
     Redirect a output stream of backend or a specific task to terminal.
@@ -620,6 +660,7 @@ def watch(fullname: Optional[str], stream: str):
     help="Cancel all tasks or match names by regex expressions.",
 )
 @click.argument("name", type=str, required=False)
+@fetch_from_msgbox
 def cancel(all: bool, name: Optional[str]):
     """
     Cancel specific task or group by full name or regex expressions. If the task is running,
@@ -659,6 +700,7 @@ def cancel(all: bool, name: Optional[str]):
     help="Resume all tasks or match names by regex expressions.",
 )
 @click.argument("name", type=str, required=False)
+@fetch_from_msgbox
 def resume(all: bool, name: Optional[str]):
     """
     Resume specific task or group by full name or regex expressions. If the task is not cancelled, it will be ignored.
@@ -704,6 +746,7 @@ def resume(all: bool, name: Optional[str]):
     help="Force kill tasks.",
 )
 @click.argument("name", type=str, required=False)
+@fetch_from_msgbox
 def kill(all: bool, force: bool, name: Optional[str]):
     """
     Kill specific task or group by full name or regex expressions.
@@ -749,6 +792,7 @@ def kill(all: bool, force: bool, name: Optional[str]):
     help="Remove all tasks or match names by regex expressions.",
 )
 @click.argument("name", type=str, required=False)
+@fetch_from_msgbox
 def remove(all: bool, name: Optional[str]):
     """
     Remove specific task or group by full name or regex expressions.
@@ -790,6 +834,7 @@ def remove(all: bool, name: Optional[str]):
     type=bool,
     help=f"Forcefully kill processes occupying the host: {settings.host} and port: {settings.port}.",
 )
+@fetch_from_msgbox
 def exit(force: bool):
     """
     Exit the backend, even if backend may not respond.
@@ -845,6 +890,7 @@ Available settings:
 @main.command(help=set_docstring)
 @click.argument("setting_or_task_attr", type=str)
 @click.argument("value", type=MagicString())
+@fetch_from_msgbox
 def set(setting_or_task_attr: str, value: str):
     if "." in setting_or_task_attr:
         name, attr = setting_or_task_attr.rsplit(".", 1)
@@ -918,6 +964,7 @@ def set(setting_or_task_attr: str, value: str):
     default=False,
     help="Print cleaned cache directories or files.",
 )
+@fetch_from_msgbox
 def clean(
     before: Optional[datetime], after: Optional[datetime], all: bool, verbose: bool
 ):

@@ -43,6 +43,7 @@ setup(
     version="0.1.0",
     author="Kamichanw",
     license="MIT",
+    python_requires=">=3.10",
     description="A Python task scheduling framework.",
     packages=find_packages(),
     include_package_data=True,

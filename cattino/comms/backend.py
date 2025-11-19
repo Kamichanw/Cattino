@@ -13,16 +13,14 @@ from cattino.comms.base import Request, Response, Transmittable, communicate
 
 
 class TaskResponse(Response):
-    success: Optional[Sequence[str]] = None
-    no_op: Optional[Sequence[str]] = None
-    failure: Optional[Sequence[str]] = None
+    success: Sequence[str] | None = None
+    failure: Sequence[str] | None = None
 
     def __init__(
         self,
-        success: Optional[Sequence[str]] = None,
-        no_op: Optional[Sequence[str]] = None,
-        failure: Optional[Sequence[str]] = None,
-        status_code: Optional[int] = None,
+        success: Sequence[str] | None = None,
+        failure: Sequence[str] | None = None,
+        status_code: int | None = None,
         **kwargs,
     ):
         """
@@ -37,29 +35,21 @@ class TaskResponse(Response):
             **kwargs: Additional keyword arguments for the message.
         """
         if status_code is None:
-            if success and not no_op and not failure:
+            if success and not failure:
                 # all tasks are successfully processed
                 status_code = status.HTTP_200_OK
-            elif no_op and not success and not failure:
-                # all tasks don't need to be processed
-                status_code = status.HTTP_204_NO_CONTENT
-            elif failure and not success and not no_op:
+            elif failure and not success:
                 # all tasks failed to be processed
                 status_code = status.HTTP_400_BAD_REQUEST
+            elif not success and not failure:
+                # no tasks processed
+                status_code = status.HTTP_204_NO_CONTENT
             else:
-                # combination of success, no_op or failure
-                if not success:
-                    # no tasks are successfully processed
-                    status_code = status.HTTP_400_BAD_REQUEST
-                else:
-                    status_code = status.HTTP_207_MULTI_STATUS
+                # combination of success and failure
+                status_code = status.HTTP_207_MULTI_STATUS
 
         super().__init__(
-            status_code=status_code,
-            success=success,
-            no_op=no_op,
-            failure=failure,
-            **kwargs,
+            status_code=status_code, success=success, failure=failure, **kwargs
         )
 
 
@@ -71,7 +61,7 @@ class BackendRequest(Request):
     @communicate("create", return_response_cls=TaskResponse)
     def create(
         tasks: Sequence[AbstractTask],
-        extra_paths: Optional[Sequence[str]] = None,
+        extra_paths: Sequence[str] | None = None,
         **kwargs,
     ) -> TaskResponse:
         """
@@ -99,7 +89,11 @@ class BackendRequest(Request):
     @staticmethod
     @communicate("kill", return_response_cls=TaskResponse)
     def kill(
-        name: Optional[str], force: bool = False, use_regex: bool = False, **kwargs
+        name: str | None,
+        force: bool = False,
+        use_regex: bool = False,
+        filter: str | None = None,
+        **kwargs,
     ) -> TaskResponse:
         """
         Kill specified tasks by name or regex expression. If no name is provided, all tasks will be killed.
@@ -114,12 +108,13 @@ class BackendRequest(Request):
             TaskResponse: A response object containing the status code and details of the task killing.
         """
         return Request.post(  # type: ignore
-            Transmittable(name=name, force=force, use_regex=use_regex), **kwargs
+            Transmittable(name=name, force=force, use_regex=use_regex, filter=filter),
+            **kwargs,
         )
 
     @staticmethod
     @communicate("list")
-    def list(filter: Optional[str], attrs: Tuple[str, ...], **kwargs) -> Response:
+    def list(filter: str | None, attrs: Tuple[str, ...], **kwargs) -> Response:
         """
         Query specified attributes of tasks that match the given condition.
 
@@ -155,7 +150,7 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("cancel", return_response_cls=TaskResponse)
-    def cancel(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
+    def cancel(name: str | None, use_regex: bool = False, **kwargs) -> TaskResponse:
         """
         Cancel tasks by name or regex expression. If no name is provided, all tasks will be cancelled.
 
@@ -171,7 +166,7 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("resume", return_response_cls=TaskResponse)
-    def resume(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
+    def resume(name: str | None, use_regex: bool = False, filter: str | None = None, **kwargs) -> TaskResponse:
         """
         Resume tasks by name or regex expression. If no name is provided, all tasks will be resumed.
 
@@ -183,11 +178,11 @@ class BackendRequest(Request):
         Returns:
             TaskResponse: A response object containing the status code and details of the task resumption.
         """
-        return Request.post(Transmittable(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+        return Request.post(Transmittable(name=name, use_regex=use_regex, filter=filter), **kwargs)  # type: ignore
 
     @staticmethod
     @communicate("remove", return_response_cls=TaskResponse)
-    def remove(name: Optional[str], use_regex: bool = False, **kwargs) -> TaskResponse:
+    def remove(name: str | None, use_regex: bool = False, filter: str | None = None, **kwargs) -> TaskResponse:
         """
         Remove tasks by name or regex expression. If no name is provided, all tasks will be removed.
 
@@ -199,7 +194,7 @@ class BackendRequest(Request):
         Returns:
             TaskResponse: A response object containing the status code and details of the task removal.
         """
-        return Request.post(Transmittable(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+        return Request.post(Transmittable(name=name, use_regex=use_regex, filter=filter), **kwargs)  # type: ignore
 
     @staticmethod
     @communicate("exit")
@@ -217,7 +212,7 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("test")
-    def test(name: Optional[str] = None, **kwargs) -> Response:
+    def test(name: str | None = None, **kwargs) -> Response:
         """
         Query the backend or a specific task whether it is running.
 
@@ -234,6 +229,8 @@ class BackendRequest(Request):
             return Request.get(kwargs["url"])  # type: ignore
         else:
             return Request.get(f"{kwargs['url']}/{name}")  # type: ignore
+
+    
 
 
 def where() -> str:
@@ -254,7 +251,7 @@ def where() -> str:
 
 
 def start_backend(
-    blocking: bool = False, host: Optional[str] = None, port: Optional[int] = None
+    blocking: bool = False, host: str | None = None, port: int | None = None
 ):
     cmd = [
         sys.executable,

@@ -55,12 +55,12 @@ class Platform:
         return self._enum in (PlatformEnum.CUDA, PlatformEnum.ROCM)
 
     @classmethod
-    def get_all_deivce_indices(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> list[int]:
         """Get all logic indices of available devices"""
         raise NotImplementedError
 
     @classmethod
-    def get_device_control_env_var(cls, device_ids: List[int]) -> Dict[str, str]:
+    def get_device_control_env_var(cls, device_ids: list[int]) -> dict[str, str]:
         """
         Get a dictionary to set device control environment variable.
         For example, for GPU, this method should return something like
@@ -92,7 +92,7 @@ class Platform:
     @classmethod
     def get_proc_memory_usage(
         cls,
-        pid_or_proc: Optional[Union[int, Process]] = None,
+        pid_or_proc: Union[int, Process] | None = None,
         device_id: int = 0,
         include_children: bool = False,
     ) -> int:

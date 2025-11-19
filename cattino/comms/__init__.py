@@ -8,3 +8,4 @@ from .msgbox import (
     start_msgbox,
     send_msg_on_error,
 )
+from .ghost import start_ghost

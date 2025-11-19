@@ -1,11 +1,11 @@
-from abc import ABC, abstractmethod
 import itertools
 import random
 import string
 import time
 import enum
 
-from typing import Dict, List, Literal, Optional, Sequence, Set, Union, TYPE_CHECKING
+from abc import ABC, abstractmethod
+from typing import Literal, Sequence, Set, Union, TYPE_CHECKING
 from collections import Counter
 
 from cattino.settings import settings
@@ -48,7 +48,7 @@ class AbstractTask(ABC):
 
     def __init__(self, name: str):
         self.name = name
-        self._group: Optional["TaskGroup"] = None
+        self._group: "TaskGroup | None" = None
         if self.name == "backend":
             raise ValueError(
                 "Task name cannot be 'backend'. It is reserved for cattino."
@@ -59,7 +59,7 @@ class AbstractTask(ABC):
             )
 
     @property
-    def group(self) -> Optional["TaskGroup"]:
+    def group(self) -> "TaskGroup | None":
         """Get the group that the task belongs to. If the task belongs to any group, it returns None."""
         return self._group
 
@@ -106,7 +106,7 @@ class AbstractTask(ABC):
 class Task(AbstractTask):
     SETTABLE_ATTRS = AbstractTask.SETTABLE_ATTRS + ["priority"]
 
-    def __init__(self, task_name: Optional[str] = None, priority: int = 0):
+    def __init__(self, task_name: str | None = None, priority: int = 0):
         """
         Initialize an abstract backend task.
 
@@ -114,7 +114,7 @@ class Task(AbstractTask):
         If no task name is provided, a random 5-character alphanumeric string is generated.
 
         Args:
-            task_name (Optional[str], optional): The name of the task. Defaults to None.
+            task_name (str | None, optional): The name of the task. Defaults to None.
             priority (int): The task's priority level. Higher values indicate higher priority.
                 Defaults to 0.
         """
@@ -136,7 +136,7 @@ class Task(AbstractTask):
         """
 
     @abstractmethod
-    def wait(self, timeout: Optional[float] = None) -> None:
+    def wait(self, timeout: float | None = None) -> None:
         """
         Wait for the task to complete.
 
@@ -151,7 +151,6 @@ class Task(AbstractTask):
     def cancel(self) -> None:
         """
         Cancel a task that hasn't started or done yet. If the task is running, it should be terminated.
-        Once the task is cancelled, it won't be scheduled for execution.
         """
         if self.status in [TaskStatus.Done, TaskStatus.Failed]:
             return
@@ -222,7 +221,7 @@ class DeviceRequiredTask(Task):
 
     def __init__(
         self,
-        task_name: Optional[str] = None,
+        task_name: str | None = None,
         priority: int = 0,
         requires_memory_per_device: Union[int, float] = 0,
         min_devices: int = 1,
@@ -240,7 +239,7 @@ class DeviceRequiredTask(Task):
         super().__init__(task_name=task_name, priority=priority)
         self._allocator = DeviceAllocator()
         # this property will be set by the allocator
-        self._assigned_device_indices: Optional[List[int]] = None
+        self._assigned_device_indices: list[int] | None = None
         self._requires_memory_per_device: int = 0
         self._min_devices: int = 1
         self.requires_memory_per_device = requires_memory_per_device
@@ -298,7 +297,7 @@ class DeviceRequiredTask(Task):
         self._min_devices = value
 
     @property
-    def assigned_device_indices(self) -> Optional[List[int]]:
+    def assigned_device_indices(self) -> list[int] | None:
         """
         Get the assigned device indices.
         """
@@ -342,13 +341,13 @@ class TaskGroup(AbstractTask):
         execute_strategy: Union[
             Literal["sequential", "parallel"], "TaskGraph"
         ] = "parallel",
-        group_name: Optional[str] = None,
+        group_name: str | None = None,
     ):
         """
         Initialize a task group.
 
         Args:
-            tasks (List[AbstractTask], optional): The list of tasks and subgroups.
+            tasks (list[AbstractTask], optional): The list of tasks and subgroups.
             execute_strategy (Union[str, TaskGraph], optional): The execution strategy for the group,
                 either 'sequential', 'parallel', or a TaskGraph object.
             group_name (str, optional): The name of the task group. If not provided,
@@ -361,13 +360,13 @@ class TaskGroup(AbstractTask):
         super().__init__(
             group_name if group_name is not None else f"group_of_{tasks[0].name}"
         )
-        self.subtasks: List[AbstractTask] = []
-        self._group: Optional["TaskGroup"] = None
+        self.subtasks: list[AbstractTask] = []
+        self._group: "TaskGroup | None" = None
 
         for t in tasks:
             self.add_task(t)
 
-        all_tasks: List[Task] = list(
+        all_tasks: list[Task] = list(
             itertools.chain(
                 *[[t] if not issubclass(type(t), TaskGroup) else t.all_tasks for t in tasks]  # type: ignore
             )
@@ -412,7 +411,7 @@ class TaskGroup(AbstractTask):
         self.execute_graph = task_graph
 
     @property
-    def all_tasks(self) -> List[Task]:
+    def all_tasks(self) -> list[Task]:
         """
         Get all tasks in the task group.
         """
@@ -472,11 +471,11 @@ class TaskGroup(AbstractTask):
     def from_name_task_pairs(
         cls,
         name_task_pairs: Sequence[tuple[str, AbstractTask]],
-        group_types: Optional[Dict[str, type["TaskGroup"]]] = None,
+        group_types: dict[str, type["TaskGroup"]] | None = None,
         execute_strategy: Union[
             Literal["sequential", "parallel"], "TaskGraph"
         ] = "parallel",
-        group_name: Optional[str] = None,
+        group_name: str | None = None,
     ) -> "TaskGroup":
         """
         Create a TaskGroup from name-task pairs.
@@ -499,12 +498,12 @@ class TaskGroup(AbstractTask):
                     └── group2
                         └── task3
                 ```
-            group_types (Optional[Dict[str, type[TaskGroup]]], *optional*): A dictionary mapping group names to their respective TaskGroup types.
+            group_types (dict[str, type[TaskGroup]] | None, *optional*): A dictionary mapping group names to their respective TaskGroup types.
                 For those unspecified, the current TaskGroup type will be used.
                 Defaults to None.
             execute_strategy (Union[str, TaskGraph], *optional*): The execution strategy for the group,
                 either 'sequential', 'parallel', or a TaskGraph object. Defaults to "parallel".
-            group_name (Optional[str], *optional*): The name of the task group. If not provided,
+            group_name (str | None, *optional*): The name of the task group. If not provided,
                 it will be set to 'group_of_{name of a task in the group}'.
                 Defaults to None.
         Returns:

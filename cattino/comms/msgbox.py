@@ -106,9 +106,9 @@ class MsgBoxRequest(Request):
 
 
 async def start_msgbox(
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    backend_dir: Optional[str] = None,
+    host: str | None = None,
+    port: int | None = None,
+    backend_dir: str | None = None,
 ):
     cmd = [
         sys.executable,

@@ -3,8 +3,10 @@ import os
 import re
 import dill
 import toml
+import tempfile
+
 from functools import cached_property
-from typing import Any, Callable, Dict, List, Literal, Mapping, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 from pydantic import BaseModel, Field, PrivateAttr
 from filelock import FileLock, BaseFileLock
 
@@ -13,7 +15,7 @@ from cattino.platforms import current_platform
 from cattino.utils import get_cattino_home
 
 
-class SettingsBinary(Dict[str, Any]):
+class SettingsBinary(dict[str, Any]):
 
     def __init__(self, bin_path: str):
         self.path = bin_path
@@ -26,13 +28,19 @@ class SettingsBinary(Dict[str, Any]):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if len(self) > 0:
-            with open(self.path, "wb") as f:
-                dill.dump(dict(self), f)
+            dirpath = os.path.dirname(self.path)
+            with tempfile.NamedTemporaryFile(dir=dirpath, delete=False) as tf:
+                dill.dump(dict(self), tf)
+                tmpname = tf.name
+            os.replace(tmpname, self.path)
 
     def clear(self):
         super().clear()
         if os.path.isfile(self.path):
-            os.remove(self.path)
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
 
 
 class Settings(BaseModel):
@@ -59,10 +67,6 @@ class Settings(BaseModel):
             "Defaults to 'forbid'."
         ),
     )
-    cascade_cancel_on_failure: bool = Field(
-        False,
-        description="Whether to cancel all subsequent tasks if one fails. Defaults to False.",
-    )
     debugging: bool = Field(
         False, description="Whether to enable debugging mode. Defaults to False."
     )
@@ -72,7 +76,7 @@ class Settings(BaseModel):
             "Whether to shutdown the server when all tasks are complete. Defaults to True."
         ),
     )
-    visible_devices: List[int] = Field(
+    visible_devices: list[int] = Field(
         current_platform.get_all_deivce_indices(),
         description=(
             "The list of visible device indices. If set to None, all devices will be visible. "
@@ -91,16 +95,22 @@ class Settings(BaseModel):
             f"The port to use for the cattino message box server. Defaults to {CATTINO_PORT + 1}."
         ),
     )
+    ghost_port: int = Field(
+        CATTINO_PORT + 2,
+        description=(
+            f"The port to use for the cattino ghost server. Defaults to {CATTINO_PORT + 2}."
+        ),
+    )
     host: str = Field(
         CATTINO_HOST,
         description=f"The host to use for the cattino server. Defaults to {CATTINO_HOST}.",
     )
 
-    magic_constants: Dict[str, str] = Field(
+    magic_constants: dict[str, str] = Field(
         {"fullpath": "${eval:'${fullname}'.replace('/', '%s')}" % os.sep},
         description="Pre-defined constants to use in magic string.",
     )
-    resolvers: Dict[str, Callable] = Field(
+    resolvers: dict[str, Callable] = Field(
         {"eval": lambda x: eval(x)},
         description="Resolvers to use in magic string.",
     )
@@ -113,26 +123,13 @@ class Settings(BaseModel):
         ),
     )
 
-    # prevent calling custom setter recursively
-    _internal_set: bool = PrivateAttr(default=False)
-    # extra getter
-    _getter: Dict[str, Callable] = PrivateAttr(default_factory=dict)
-    # extra setter. to add a setter for attr, add a new entry to this dict.
-    # the setter should return the value to be set, and no set operation
-    # should be performed in the setter.
-    _setter: Dict[str, Callable] = PrivateAttr(
-        default={
-            "visible_devices": lambda self, x: (
-                ast.literal_eval(x) if isinstance(x, str) else x
-            ),
-        }
-    )
     _filelock: BaseFileLock = PrivateAttr(
         default_factory=lambda: FileLock(
             os.path.join(get_cattino_home(), "settings.lock")
         )
     )
     _home: str = PrivateAttr(default_factory=get_cattino_home)
+    _last_mtime: float = PrivateAttr(default=0.0)
 
     class Config:
         validate_assignment = True
@@ -142,22 +139,23 @@ class Settings(BaseModel):
         self.load()
 
     def load(self):
-        if os.path.isfile(self.path):
-            with open(self.path, "r") as f:
-                config = toml.load(f)
-            self._internal_set = True
-            with SettingsBinary(
-                os.path.join(get_cattino_home(), "settings.bin")
-            ) as bin:
-                for k, v in config.get("tool", {}).get("cattino", {}).items():
-                    if isinstance(v, str):
-                        # try to load from binary
-                        if m := re.match(r"^\$\{bin\.(.+)\}$", v):
-                            # load from binary
-                            k = m.group(1)
-                            v = bin[k]
-                    setattr(self, k, v)
-            self._internal_set = False
+        mtime = os.path.getmtime(self.path) if os.path.isfile(self.path) else 0.0
+        if self._last_mtime >= mtime:
+            return
+
+        with open(self.path, "r") as f:
+            config = toml.load(f)
+
+        with SettingsBinary(os.path.join(get_cattino_home(), "settings.bin")) as bin:
+            for k, v in config.get("tool", {}).get("cattino", {}).items():
+                if isinstance(v, str):
+                    # try to load from binary
+                    if m := re.match(r"^\$\{bin\.(.+)\}$", v):
+                        # load from binary
+                        k = m.group(1)
+                        v = bin.get(k)
+                    object.__setattr__(self, k, v)
+        self._last_mtime = os.path.getmtime(self.path)
 
     def save(self):
         def is_serializable_in_toml(value) -> bool:
@@ -183,6 +181,7 @@ class Settings(BaseModel):
                     bin[key] = value
                     new_settings[key] = f"${{bin.{key}}}"
 
+        dirpath = os.path.dirname(self.path) or "."
         if os.path.isfile(self.path):
             with open(self.path, "r") as f:
                 config = toml.load(f)
@@ -195,8 +194,12 @@ class Settings(BaseModel):
                 return
             config = {"tool": {"cattino": new_settings}}
 
-        with open(self.path, "w") as f:
-            toml.dump(config, f)
+
+        with tempfile.NamedTemporaryFile(mode="w", dir=dirpath, delete=False) as tf:
+            toml.dump(config, tf)
+            tmpname = tf.name
+        os.replace(tmpname, self.path)
+        self._last_mtime = os.path.getmtime(self.path)
 
     def clear(self):
         """Clear all settings."""
@@ -206,12 +209,20 @@ class Settings(BaseModel):
                     os.path.join(get_cattino_home(), "settings.bin")
                 ) as bin:
                     bin.clear()
-                with open(self.path, "r") as f:
-                    config = toml.load(f)
+                try:
+                    with open(self.path, "r") as f:
+                        config = toml.load(f)
+                except Exception:
+                    config = {}
                 config.setdefault("tool", {})
                 config["tool"].pop("cattino", None)
-                with open(self.path, "w") as f:
-                    toml.dump(config, f)
+                dirpath = os.path.dirname(self.path) or "."
+                with tempfile.NamedTemporaryFile(
+                    mode="w", dir=dirpath, delete=False
+                ) as tf:
+                    toml.dump(config, tf)
+                    tmpname = tf.name
+                os.replace(tmpname, self.path)
 
     @cached_property
     def default_settings(self):
@@ -240,8 +251,10 @@ class Settings(BaseModel):
         This is to ensure that the settings are always up-to-date when accessed.
         """
         if name in Settings.model_fields:
-            with self._filelock:
-                self.load()
+            mtime = os.path.getmtime(self.path) if os.path.isfile(self.path) else 0.0
+            if self._last_mtime < mtime:
+                with self._filelock:
+                    self.load()
 
         return super().__getattribute__(name)
 
@@ -249,17 +262,19 @@ class Settings(BaseModel):
         """
         Set an attribute, ensuring that the settings are loaded and saved as needed.
         """
-        if not self._internal_set and name in Settings.model_fields:
-            self._filelock.acquire()
-            self.load()
+        if name in Settings.model_fields and hasattr(self, "_filelock"):
+            # perform load/set/save under lock to avoid races
+            with self._filelock:
+                self.load()
+                # use object.__setattr__ to avoid invoking this __setattr__ recursively
+                object.__setattr__(self, name, value)
+                try:
+                    self.save()
+                except Exception:
+                    pass
+            return
 
-        if name in self._setter:
-            value = self._setter[name](self, value)
-        super().__setattr__(name, value)
-
-        if not self._internal_set and name in Settings.model_fields:
-            self.save()
-            self._filelock.release()
+        object.__setattr__(self, name, value)
 
 
 settings = Settings()

@@ -12,7 +12,7 @@ class CpuPlatform(Platform):
     device_type: str = "cpu"
 
     @classmethod
-    def get_device_control_env_var(cls, device_ids: List[int]) -> Dict[str, Any]:
+    def get_device_control_env_var(cls, device_ids: list[int]) -> dict[str, Any]:
         """
         Returns the environment variables to control device visibility.
         For CPU, no device control is necessary.
@@ -20,7 +20,7 @@ class CpuPlatform(Platform):
         return {}
 
     @classmethod
-    def get_all_deivce_indices(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> list[int]:
         """
         Returns the number of available CPU devices.
         For CPU, only one device exists.
@@ -65,7 +65,7 @@ class CpuPlatform(Platform):
     @classmethod
     def get_proc_memory_usage(
         cls,
-        pid_or_proc: Optional[Union[int, Process]] = None,
+        pid_or_proc: Union[int, Process] | None = None,
         device_id: int = 0,
         include_children: bool = False,
     ) -> int:

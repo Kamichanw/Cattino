@@ -8,7 +8,7 @@ from cattino.utils import resolve_obj_by_qualname
 from .interface import Platform, PlatformEnum
 
 
-def tpu_platform_plugin() -> Optional[str]:
+def tpu_platform_plugin() -> str | None:
     is_tpu = False
     try:
         # While it's technically possible to install libtpu on a
@@ -24,7 +24,7 @@ def tpu_platform_plugin() -> Optional[str]:
     return "cattino.platforms.tpu.TpuPlatform" if is_tpu else None
 
 
-def cuda_platform_plugin() -> Optional[str]:
+def cuda_platform_plugin() -> str | None:
     is_cuda = False
     try:
         from cattino.utils import import_pynvml
@@ -53,7 +53,7 @@ def cuda_platform_plugin() -> Optional[str]:
     return "cattino.platforms.cuda.CudaPlatform" if is_cuda else None
 
 
-def rocm_platform_plugin() -> Optional[str]:
+def rocm_platform_plugin() -> str | None:
     is_rocm = False
     try:
         import amdsmi  # type: ignore
@@ -70,7 +70,7 @@ def rocm_platform_plugin() -> Optional[str]:
     return "cattino.platforms.rocm.RocmPlatform" if is_rocm else None
 
 
-def hpu_platform_plugin() -> Optional[str]:
+def hpu_platform_plugin() -> str | None:
     is_hpu = False
     try:
         from importlib import util
@@ -83,7 +83,7 @@ def hpu_platform_plugin() -> Optional[str]:
     return "cattino.platforms.hpu.HpuPlatform" if is_hpu else None
 
 
-def xpu_platform_plugin() -> Optional[str]:
+def xpu_platform_plugin() -> str | None:
     is_xpu = False
     try:
         # installed IPEX if the machine has XPUs.
@@ -99,11 +99,11 @@ def xpu_platform_plugin() -> Optional[str]:
     return "cattino.platforms.xpu.XPUPlatform" if is_xpu else None
 
 
-def cpu_platform_plugin() -> Optional[str]:
+def cpu_platform_plugin() -> str | None:
     return "cattino.platforms.cpu.CpuPlatform"
 
 
-def neuron_platform_plugin() -> Optional[str]:
+def neuron_platform_plugin() -> str | None:
     is_neuron = False
     try:
         import transformers_neuronx  # type: ignore
@@ -115,7 +115,7 @@ def neuron_platform_plugin() -> Optional[str]:
     return "cattino.platforms.neuron.NeuronPlatform" if is_neuron else None
 
 
-def ascend_platform_plugin() -> Optional[str]:
+def ascend_platform_plugin() -> str | None:
     is_ascend = False
     try:
         import torch
@@ -162,7 +162,7 @@ def resolve_current_platform_cls_qualname() -> str:
     return platform_cls_qualname  # type: ignore
 
 
-_current_platform: Optional[Platform] = None
+_current_platform: Platform | None = None
 _init_trace: str = ""
 
 if TYPE_CHECKING:

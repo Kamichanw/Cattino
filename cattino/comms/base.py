@@ -36,7 +36,7 @@ class Response(Transmittable):
     """
 
     status_code: int
-    detail: Optional[str] = None
+    detail: str | None = None
 
     def __init__(self, status_code: int, **kwargs):
         super().__init__(status_code=status_code, **kwargs)

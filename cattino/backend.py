@@ -10,7 +10,7 @@ import fastapi
 import uvicorn
 
 from contextlib import asynccontextmanager, redirect_stderr, redirect_stdout, ExitStack
-from typing import Callable, Optional
+from typing import Callable
 from collections.abc import Sequence
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from loguru import logger
@@ -22,6 +22,7 @@ from cattino.comms import (
     Transmittable,
     MsgBoxRequest,
     start_msgbox,
+    start_ghost,
     send_msg_on_error,
 )
 from cattino.core.task_scheduler import TaskScheduler
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
             settings.msgbox_port,
             cache_dir if app.state.redirect_output else None,
         )
+        ghost_proc = await start_ghost(app.state.host, settings.ghost_port)
 
         # create main loop to schedule tasks
         async def main_loop():
@@ -99,7 +101,7 @@ async def lifespan(app: FastAPI):
                     tasks.append(asyncio.create_task(read_stream(msgbox_proc.stderr)))
 
         yield
-        
+
         shutdown_event.set()
         await asyncio.gather(*tasks)
         await task_scheduler.remove(await task_scheduler.all_tasks)
@@ -108,11 +110,33 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+def _filter_tasks(tasks: list, filter_expr: str) -> list:
+    filtered = []
+    for task in tasks:
+        filter_body = Magics.resolve(
+            filter_expr,
+            task_name=task.name,
+            fullname=task.fullname,
+            run_dir=get_cache_dir(),
+        )
+        try:
+            filter_fn = eval("lambda task: " + filter_body)
+            if filter_fn(task):
+                filtered.append(task)
+        except Exception as e:
+            logger.exception(e)
+            raise ValueError(
+                f"{filter_expr} is not a valid python expression for task {task.fullname}: {e}"
+            )
+    return filtered
+
+
 async def process_tasks(
-    name: Optional[str],
+    name: str | None,
     func: Callable,
-    allow_status: Optional[Sequence[TaskStatus]] = None,
+    allow_status: Sequence[TaskStatus] | None = None,
     use_regex: bool = False,
+    filter: str | None = None,
     **func_kwargs,
 ):
     scheduler: TaskScheduler = app.state.task_scheduler
@@ -137,7 +161,14 @@ async def process_tasks(
             detail=f"Task {name} not found",
         )
 
-    success, no_op, failure, exception = [], [], [], []
+    # apply filter expression if provided
+    if filter:
+        try:
+            tasks = _filter_tasks(tasks, filter)
+        except ValueError as e:
+            return Response(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    success, failure, exception = [], [], []
     allow_status = allow_status or builtins.list(TaskStatus)
     if not is_take_sequence_func:
         for task in tasks:
@@ -149,10 +180,7 @@ async def process_tasks(
                     logger.exception(e)
                     exception.append(f"Task {task.fullname} failed: {str(e)}")
                     failure.append(task.fullname)
-            else:
-                no_op.append(task.fullname)
     else:
-        no_op.extend([t.fullname for t in tasks if t.status not in allow_status])
         if tasks := [t for t in tasks if t.status in allow_status]:
             try:
                 await func(tasks, **func_kwargs)
@@ -162,9 +190,7 @@ async def process_tasks(
                 failure.extend([t.fullname for t in tasks])
                 exception.append(f"Some tasks failed: {str(e)}")
 
-    return TaskResponse(
-        success=success, no_op=no_op, failure=failure, detail="\n".join(exception)
-    )
+    return TaskResponse(success=success, failure=failure, detail="\n".join(exception))
 
 
 def load_backend_request(message: UploadFile = File(...), request: fastapi.Request = None):  # type: ignore
@@ -197,6 +223,7 @@ async def kill(data: Transmittable = Depends(load_backend_request)):
         scheduler.terminate,
         [TaskStatus.Running],
         use_regex=data.use_regex,  # type: ignore
+        filter=data.filter,  # type: ignore
         force=data.force,  # type: ignore
     )
 
@@ -206,7 +233,7 @@ async def kill(data: Transmittable = Depends(load_backend_request)):
 async def remove(data: Transmittable = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
     return await process_tasks(
-        data.name, scheduler.remove, use_regex=data.use_regex  # type: ignore
+        data.name, scheduler.remove, use_regex=data.use_regex, filter=data.filter  # type: ignore
     )
 
 
@@ -229,38 +256,25 @@ async def resume(request: BackendRequest = Depends(load_backend_request)):
     return await process_tasks(
         request.name,  # type: ignore
         scheduler.resume,
-        [TaskStatus.Cancelled],
+        [TaskStatus.Cancelled, TaskStatus.Failed],
         use_regex=request.use_regex,  # type: ignore
+        filter=request.filter,  # type: ignore
     )
 
 
 @app.get("/list", response_model=Response)
 @send_msg_on_error(tag="backend")
-async def list(filter: Optional[str] = None, attrs: str = ""):
+async def list(filter: str | None = None, attrs: str = ""):
     attrs = attrs.split()  # type: ignore
     scheduler: TaskScheduler = app.state.task_scheduler
     all_tasks = await scheduler.all_tasks
-    filtered_tasks = []
-    for task in all_tasks:
-        if filter:
-            filter_body = Magics.resolve(
-                filter,
-                task_name=task.name,
-                fullname=task.fullname,
-                run_dir=get_cache_dir(),
-            )
-            try:
-                filter_fn = eval("lambda task: " + filter_body)
-                if filter_fn(task):
-                    filtered_tasks.append(task)
-            except Exception as e:
-                logger.exception(e)
-                return Response(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"{filter} is not a valid python expression for task {task.fullname}: {e}",
-                )
-        else:
-            filtered_tasks.append(task)
+    if filter:
+        try:
+            filtered_tasks = _filter_tasks(all_tasks, filter)
+        except ValueError as e:
+            return Response(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    else:
+        filtered_tasks = all_tasks
 
     return Response(
         status_code=status.HTTP_200_OK,
@@ -313,7 +327,7 @@ async def set_task_attr(request: BackendRequest = Depends(load_backend_request))
 @send_msg_on_error(tag="backend")
 async def create_task(request: BackendRequest = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    success, failure, no_op, exception = [], [], [], []
+    success, failure, exception = [], [], []
     for task in request.tasks:  # type: ignore
         fullname = task.fullname
         try:
@@ -327,18 +341,14 @@ async def create_task(request: BackendRequest = Depends(load_backend_request)):
             success.extend(
                 [t.fullname for t in task.all_tasks if t.status != TaskStatus.Cancelled]
             )
-            no_op.extend(
-                [t.fullname for t in task.all_tasks if t.status == TaskStatus.Cancelled]
-            )
         else:
             if task.status == TaskStatus.Cancelled:
-                no_op.append(fullname)
+                # skip cancelled tasks (no-op)
+                continue
             else:
                 success.append(fullname)
 
-    return TaskResponse(
-        success=success, no_op=no_op, failure=failure, detail="\n".join(exception)
-    )
+    return TaskResponse(success=success, failure=failure, detail="\n".join(exception))
 
 
 @app.get("/test", response_model=Response)
@@ -412,7 +422,7 @@ async def exit():
     default=False,
     help="Whether to redirect backend outputs to files.",
 )
-def run(host: Optional[str], port: Optional[int], redirect_output: bool):
+def run(host: str | None, port: int | None, redirect_output: bool):
     app.state.redirect_output = redirect_output
     app.state.host = host or settings.host
     logger.debug(

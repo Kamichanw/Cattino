@@ -5,10 +5,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 from typing import (
     Iterable,
-    List,
-    Dict,
     Sequence,
-    Optional,
     overload,
 )
 
@@ -54,7 +51,7 @@ class TaskScheduler:
         self._task_graph_lock = aiorwlock.RWLock()
 
         # group info ensures that the start/end hooks are called in the correct order
-        self._group_info: Dict[AbstractTask, GroupInfo] = {}
+        self._group_info: dict[AbstractTask, GroupInfo] = {}
         self._group_info_lock = asyncio.Lock()
 
         self._name_tree = PathTree[AbstractTask]("fullname")
@@ -146,25 +143,12 @@ class TaskScheduler:
             task.start()
             await asyncio.to_thread(task.wait)
 
-            if task.status in [TaskStatus.Done, TaskStatus.Failed]:
-
-                def cascade_cancel(task):
-                    for t in self._task_graph.neighbors(task):
-                        cascade_cancel(t)
-                        t.cancel()
-                        self._remove_from_group_info(t)
-
-                if task.status == TaskStatus.Failed:
-
-                    MsgBoxRequest.error(
-                        f"Task failed, please check logs in {get_cache_dir(task)} for details.",
-                        tag=task.fullname,
-                    )
-                    if settings.cascade_cancel_on_failure:
-                        async with self._task_graph_lock.writer_lock:
-                            async with self._group_info_lock:
-                                cascade_cancel(task)
-
+            if task.status == TaskStatus.Failed:
+                MsgBoxRequest.error(
+                    f"Task failed, please check logs in {get_cache_dir(task)} for details.",
+                    tag=task.fullname,
+                )
+            elif task.status == TaskStatus.Done:
                 async with self._group_info_lock:
                     post_hook_tasks = gather_post_hook_tasks(task)
 
@@ -210,10 +194,13 @@ class TaskScheduler:
                 lambda task: task.status == TaskStatus.Waiting
                 and not self._task_graph.nx_graph.nodes[task].get("started", False)
             )
-            outter_nodes: List[Task] = [
+            outter_nodes: list[Task] = [
                 task
                 for task in avail_task_graph.nodes
-                if avail_task_graph.in_degree(task) == 0
+                if all(
+                    p.status == TaskStatus.Done
+                    for p in self._task_graph.nx_graph.predecessors(task)
+                )
             ]
 
         upcoming_task = min(
@@ -234,16 +221,16 @@ class TaskScheduler:
         return False
 
     @overload
-    async def get_tasks(self, fullname: str) -> Optional[List[Task]]:
+    async def get_tasks(self, fullname: str) -> list[Task] | None:
         """Get tasks by its fullname."""
         ...
 
     @overload
-    async def get_tasks(self, pattern: re.Pattern[str]) -> Optional[List[Task]]:
+    async def get_tasks(self, pattern: re.Pattern[str]) -> list[Task] | None:
         """Get tasks by its name pattern."""
         ...
 
-    async def get_tasks(self, fullname_or_pattern) -> Optional[List[Task]]:  # type: ignore
+    async def get_tasks(self, fullname_or_pattern) -> list[Task] | None:  # type: ignore
         if isinstance(fullname_or_pattern, re.Pattern):
             return [
                 t
@@ -263,7 +250,7 @@ class TaskScheduler:
             f"fullname must be str or re.Pattern, but got {type(fullname_or_pattern)}"
         )
 
-    async def get_task_object(self, fullname: str) -> Optional[AbstractTask]:
+    async def get_task_object(self, fullname: str) -> AbstractTask | None:
         """
         Get task object by its fullname.
         """
@@ -274,7 +261,7 @@ class TaskScheduler:
                 return None
 
     @property
-    async def all_tasks(self) -> List[Task]:
+    async def all_tasks(self) -> list[Task]:
         """
         Get all tasks, including executed and pending tasks.
         """
@@ -364,8 +351,8 @@ class TaskScheduler:
         """
         # we must remove the task from the pending tasks first
         # to ensure the on_end of groups is called properly
-        for task in tasks:
-            async with self._task_graph_lock.writer_lock:
+        async with self._task_graph_lock.writer_lock:
+            for task in tasks:
                 if task in self._task_graph.tasks:
                     if task.status in [TaskStatus.Waiting, TaskStatus.Cancelled]:
                         async with self._group_info_lock:

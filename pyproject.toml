@@ -11,3 +11,45 @@ exclude = [ "^cattino/third_party/.*",]
 [tool.pyright]
 exclude = [ "^cattino/third_party/.*",]
 
+[project]
+name = "cattino"
+version = "0.1.0"
+description = "A Python task scheduling framework."
+readme = "README.md"
+authors = [ { name = "Kamichanw" } ]
+license = "MIT"
+requires-python = ">=3.10"
+
+dependencies = [
+	"torch",
+	"click",
+	"dill",
+	"rich",
+	"toml",
+	"fastapi",
+	"uvicorn",
+	"python-multipart",
+	"aiorwlock",
+	"loguru",
+	"networkx",
+	"psutil",
+]
+
+[project.optional-dependencies]
+docs = [
+	"sphinx",
+	"sphinx-argparse",
+	"sphinx-book-theme",
+	"sphinx-copybutton",
+	"sphinx-design",
+	"sphinx-togglebutton",
+	"sphinx-autobuild",
+	"myst-parser",
+]
+
+[project.scripts]
+meow = "cattino.main:main"
+
+[tool.setuptools.packages.find]
+include = ["cattino*"]
+

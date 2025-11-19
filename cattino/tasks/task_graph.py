@@ -17,7 +17,7 @@ class TaskGraph:
     def nx_graph(self):
         return self._graph
 
-    def neighbors(self, task: Task) -> List[Task]:
+    def neighbors(self, task: Task) -> list[Task]:
         """
         Get the neighbors of a task in the graph.
         """
@@ -64,7 +64,7 @@ class TaskGraph:
             v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks  # type: ignore
             self._graph.add_edges_from([(ut, vt) for ut in u_tasks for vt in v_tasks])
 
-    def add_edges_from(self, edges: List[Tuple[AbstractTask, AbstractTask]]):
+    def add_edges_from(self, edges: list[Tuple[AbstractTask, AbstractTask]]):
         """Add multiple dependency edges to the task graph."""
         for u, v in edges:
             self.add_edge(u, v)
@@ -74,7 +74,7 @@ class TaskGraph:
         tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task]  # type: ignore
         self._graph.remove_nodes_from(tasks)
 
-    def remove_tasks_from(self, tasks: List[AbstractTask]):
+    def remove_tasks_from(self, tasks: list[AbstractTask]):
         """Remove multiple tasks from the task graph."""
         for task in tasks:
             self.remove_task(task)
@@ -90,7 +90,7 @@ class TaskGraph:
                 for vt in v_tasks:
                     self._graph.remove_edge(ut, vt)
 
-    def remove_edges_from(self, edges: List[Tuple[AbstractTask, AbstractTask]]):
+    def remove_edges_from(self, edges: list[Tuple[AbstractTask, AbstractTask]]):
         """Remove multiple dependency edges from the task graph."""
         for u, v in edges:
             self.remove_edge(u, v)
@@ -99,7 +99,7 @@ class TaskGraph:
         return not nx.is_directed_acyclic_graph(self._graph)
 
     @property
-    def tasks(self) -> List[Task]:
+    def tasks(self) -> list[Task]:
         """Return all tasks in the task graph."""
         return list(self._graph.nodes)
 

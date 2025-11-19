@@ -107,7 +107,7 @@ async def fetch():
     required=False,
     help="Port to run the backend server on.",
 )
-def run(host: Optional[str], port: Optional[int], backend_dir: Optional[str]):
+def run(host: str | None, port: int | None, backend_dir: str | None):
     app.state.backend_dir = backend_dir
     app.state.messages = []
     logger.debug(

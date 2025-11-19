@@ -62,7 +62,7 @@ class CudaPlatform(Platform):
         }
 
     @classmethod
-    def get_all_deivce_indices(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> list[int]:
         return list(range(torch.cuda.device_count()))
 
     @classmethod
@@ -97,7 +97,7 @@ class CudaPlatform(Platform):
     @with_nvml_context
     def get_proc_memory_usage(
         cls,
-        pid_or_proc: Optional[Union[int, psutil.Process]] = None,
+        pid_or_proc: Union[int, psutil.Process] | None = None,
         device_id: int = 0,
         include_children: bool = False,
     ):

@@ -1,9 +1,9 @@
 import os
+import psutil
+
 from loguru import logger
 from functools import lru_cache
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union
-
-import psutil
 
 from cattino.settings import settings
 from cattino.platforms import current_platform
@@ -21,7 +21,7 @@ class DeviceAllocator:
     instance is maintained.
     """
 
-    _instance: Optional["DeviceAllocator"] = None
+    _instance: "DeviceAllocator | None"  = None
     _running_tasks: Set["DeviceRequiredTask"] = set()
 
     def __new__(cls) -> "DeviceAllocator":
@@ -84,22 +84,22 @@ class DeviceAllocator:
 
     @classmethod
     def get_device_control_env_var(
-        cls, assigned_device_indices: List[int]
-    ) -> Dict[str, str]:
+        cls, assigned_device_indices: list[int]
+    ) -> dict[str, str]:
         """
         Get environment variables for device visibility.
 
         Args:
-            assigned_device_indices (List[int]): The allocated device indices.
+            assigned_device_indices (list[int]): The allocated device indices.
 
         Returns:
-            Dict[str, str]: Environment variables for device visibility.
+            dict[str, str]: Environment variables for device visibility.
         """
         return current_platform.get_device_control_env_var(assigned_device_indices)
 
     @classmethod
     @lru_cache
-    def get_all_device_indices(cls) -> List[int]:
+    def get_all_device_indices(cls) -> list[int]:
         """
         Get all device indices. This will not affected by the device visibility.
         """
@@ -108,7 +108,7 @@ class DeviceAllocator:
     @classmethod
     def get_proc_memory_usage(
         cls,
-        pid_or_proc: Optional[Union[int, psutil.Process]] = None,
+        pid_or_proc: Union[int, psutil.Process] | None = None,
         device_id: int = 0,
         include_children: bool = False,
     ) -> int:
@@ -116,7 +116,7 @@ class DeviceAllocator:
         Get the memory usage of a specific process or all processes on a device.
 
         Args:
-            pid_or_proc (Optional[Process]): The process ID or Process object to query.
+            pid_or_proc (Process | None): The process ID or Process object to query.
             device_id (int): The device index to filter by.
             include_children (bool): Whether to include child processes. Defaults to False.
 

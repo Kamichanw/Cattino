@@ -30,14 +30,14 @@ class AscendPlatform(Platform):
 
     @classmethod
     def get_device_control_env_var(
-        cls, physical_device_ids: List[int]
-    ) -> Dict[str, Any]:
+        cls, physical_device_ids: list[int]
+    ) -> dict[str, Any]:
         return {
             "ASCEND_VISIBLE_DEVICES": ",".join(str(idx) for idx in physical_device_ids)
         }
 
     @classmethod
-    def get_all_deivce_indices(cls) -> List[int]:
+    def get_all_deivce_indices(cls) -> list[int]:
         raise NotImplementedError
 
     @classmethod
@@ -72,9 +72,9 @@ class AscendPlatform(Platform):
     @classmethod
     def get_proc_used_memory(
         cls,
-        pid_or_proc: Optional[Union[int, Process]] = None,
+        pid_or_proc: Union[int, Process] | None = None,
         device_id: int = 0,
-        include_children: Optional[bool] = False,
+        include_children: bool | None = False,
     ) -> int:
         device_id = device_id_to_physical_device_id(device_id)
 

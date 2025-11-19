@@ -18,9 +18,9 @@ class Node(Generic[T]):
 
     name: str
     sep: str
-    data: Optional[T] = None
-    children: Dict[str, "Node"] = field(default_factory=dict)
-    parent: Optional["Node"] = None
+    data: T | None = None
+    children: dict[str, "Node"] = field(default_factory=dict)
+    parent: "Node | None" = None
 
     def __str__(self) -> str:
         """
@@ -48,16 +48,16 @@ class PathTree(Generic[T]):
             sep (str): The separator used for the path.
         """
         self._root = Node(name="root", sep=sep)
-        self.nodes: Dict[str, Node] = {}
+        self.nodes: dict[str, Node] = {}
         self.sep: str = sep
     
     @property
-    def roots(self) -> Dict[str, Node]:
+    def roots(self) -> dict[str, Node]:
         """
         Returns the roots of the tree.
 
         Returns:
-            Dict[str, Node]: A dictionary of root children nodes.
+            dict[str, Node]: A dictionary of root children nodes.
         """
         return self._root.children
 
@@ -108,7 +108,7 @@ class PathTree(Generic[T]):
         """
         return self.nodes[path]
 
-    def __getitem__(self, path: str) -> Optional[T]:
+    def __getitem__(self, path: str) -> T | None:
         return self.nodes[path].data
 
     def __setitem__(self, path: str, value: T):

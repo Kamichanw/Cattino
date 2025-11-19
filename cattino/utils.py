@@ -14,8 +14,6 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    List,
-    Optional,
     Sequence,
     Union,
     get_args,
@@ -95,7 +93,7 @@ def get_cattino_home() -> str:
 
 
 @overload
-def get_cache_dir(backend_pid: Optional[int] = None) -> str:
+def get_cache_dir(backend_pid: int | None = None) -> str:
     """
     Get the current cache directory. Since the cache directory is based on the create time of the backend process,
     this function needs the process ID. If the process ID is not provided, it will use the current process ID.
@@ -104,7 +102,7 @@ def get_cache_dir(backend_pid: Optional[int] = None) -> str:
 
 
 @overload
-def get_cache_dir(filename: str, backend_pid: Optional[int] = None) -> str:
+def get_cache_dir(filename: str, backend_pid: int | None = None) -> str:
     """
     Get the current cache directory with given filename. Since the cache directory is based on the create time of the backend process,
     this function needs the process ID. If the process ID is not provided, it will use the current process ID.
@@ -113,7 +111,7 @@ def get_cache_dir(filename: str, backend_pid: Optional[int] = None) -> str:
 
 
 @overload
-def get_cache_dir(task: "AbstractTask", backend_pid: Optional[int] = None) -> str:
+def get_cache_dir(task: "AbstractTask", backend_pid: int | None = None) -> str:
     """
     Get the current cache directory with given task. Since the cache directory is based on the create time of the backend process,
     this function needs the process ID. If the process ID is not provided, it will use the current process ID.
@@ -175,7 +173,7 @@ def open_redirected_stream(cache_dir: str, stream: str, mode: str = "w") -> Any:
     return open(os.path.join(cache_dir, f"{stream}.log"), mode, buffering=1)
 
 
-def has_param_type(func, types: tuple[type, ...], index: Optional[int] = None) -> bool:
+def has_param_type(func, types: tuple[type, ...], index: int | None = None) -> bool:
     """
     Check whether a function has a parameter (at a given position or anywhere)
     whose type annotation matches any of the provided types.
@@ -220,7 +218,7 @@ def has_param_type(func, types: tuple[type, ...], index: Optional[int] = None) -
 
 
 def is_valid_filename(
-    filename: Union[str, Path], additional_reserved: Optional[Sequence[str]] = None
+    filename: Union[str, Path], additional_reserved: Sequence[str] | None = None
 ):
     """
     Check if filename is a valid filename in current platform.
@@ -286,7 +284,7 @@ def is_valid_filename(
     return True
 
 
-def split_params(params_str: str) -> List[str]:
+def split_params(params_str: str) -> list[str]:
     """
     Split a comma-separated string to a list of parameters.
     """

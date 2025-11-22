@@ -3,11 +3,7 @@ import re
 import aiorwlock
 from dataclasses import dataclass, field
 from loguru import logger
-from typing import (
-    Iterable,
-    Sequence,
-    overload,
-)
+from typing import Iterable, Sequence, overload
 
 from cattino.core.path_tree import PathTree
 from cattino.tasks.interface import AbstractTask, Task, TaskGroup, TaskStatus
@@ -148,16 +144,15 @@ class TaskScheduler:
                     f"Task failed, please check logs in {get_cache_dir(task)} for details.",
                     tag=task.fullname,
                 )
-            elif task.status == TaskStatus.Done:
-                async with self._group_info_lock:
-                    post_hook_tasks = gather_post_hook_tasks(task)
+            async with self._group_info_lock:
+                post_hook_tasks = gather_post_hook_tasks(task)
 
-                logger.info(f"Task {task.fullname} finished with status {task.status}")
-                for t in post_hook_tasks:
-                    logger.info(
-                        f"{'Group' if issubclass(type(t), TaskGroup) else 'Task'} {t.fullname} ended."
-                    )
-                    t.on_end()
+            logger.info(f"Task {task.fullname} finished with status {task.status}")
+            for t in post_hook_tasks:
+                logger.info(
+                    f"{'Group' if issubclass(type(t), TaskGroup) else 'Task'} {t.fullname} ended."
+                )
+                t.on_end()
         except Exception as e:
             logger.exception(e)
         finally:
@@ -190,34 +185,35 @@ class TaskScheduler:
         """
 
         async with self._task_graph_lock.reader_lock:
-            avail_task_graph = self._task_graph.filter_tasks(
+            avail_tasks = self._task_graph.filter_tasks(
                 lambda task: task.status == TaskStatus.Waiting
                 and not self._task_graph.nx_graph.nodes[task].get("started", False)
             )
             outter_nodes: list[Task] = [
                 task
-                for task in avail_task_graph.nodes
+                for task in avail_tasks.nodes
                 if all(
                     p.status == TaskStatus.Done
                     for p in self._task_graph.nx_graph.predecessors(task)
                 )
             ]
 
-        upcoming_task = min(
-            outter_nodes,
-            key=lambda task: (-task.priority, task.create_time),
-            default=None,
+        # choose the highest priority, earliest-created task that is actually ready
+        sorted_candidates = sorted(
+            outter_nodes, key=lambda task: (-task.priority, task.create_time)
         )
-
-        logger.debug(
+        upcoming_task = next((t for t in sorted_candidates if t.is_ready), None)
+        if sorted_candidates:
+            print(sorted_candidates[0].fullname, sorted_candidates[0].is_ready)
+        print(
             f"Upcoming task: {upcoming_task.fullname if upcoming_task else 'None'}"
         )
-
-        if upcoming_task and upcoming_task.is_ready:
+        if upcoming_task:
             async with self._task_graph_lock.writer_lock:
                 self._task_graph.nx_graph.nodes[upcoming_task]["started"] = True
             asyncio.create_task(self._execute_task(upcoming_task))
             return True
+
         return False
 
     @overload

@@ -66,16 +66,19 @@ async def lifespan(app: FastAPI):
         # create main loop to schedule tasks
         async def main_loop():
             while not shutdown_event.is_set():
-                if not await task_scheduler.step():
-                    if (
-                        settings.shutdown_on_complete
-                        and app.state.redirect_output  # if backend is running in background
-                        and not await task_scheduler.is_running
-                    ):
-                        logger.info("All tasks are done, shutting down...")
-                        shutdown_event.set()
-                    else:
-                        await asyncio.sleep(5)
+                try:
+                    if not await task_scheduler.step():
+                        if (
+                            settings.shutdown_on_complete
+                            and app.state.redirect_output  # if backend is running in background
+                            and not await task_scheduler.is_running
+                        ):
+                            logger.info("All tasks are done, shutting down...")
+                            shutdown_event.set()
+                        else:
+                            await asyncio.sleep(5)
+                except Exception as e:
+                    logger.exception(e)
             os.kill(os.getpid(), signal.SIGINT)
 
         tasks = [asyncio.create_task(main_loop())]
@@ -103,6 +106,10 @@ async def lifespan(app: FastAPI):
         yield
 
         shutdown_event.set()
+        if msgbox_proc.returncode is None:
+            msgbox_proc.terminate()
+        if ghost_proc.returncode is None:
+            ghost_proc.terminate()
         await asyncio.gather(*tasks)
         await task_scheduler.remove(await task_scheduler.all_tasks)
 
@@ -432,7 +439,7 @@ def run(host: str | None, port: int | None, redirect_output: bool):
         app,
         host=app.state.host,
         port=port or settings.port,
-        access_log=redirect_output and settings.debugging,
+        access_log=settings.debugging,
         log_config=None,
     )
 

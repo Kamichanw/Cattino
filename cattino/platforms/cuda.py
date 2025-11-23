@@ -6,7 +6,7 @@ pynvml. However, it should not initialize cuda context.
 import os
 from functools import wraps
 import psutil
-from typing import Callable, List, Optional, TypeVar, Union
+from typing import Callable, TypeVar
 
 import torch
 from typing_extensions import ParamSpec
@@ -52,14 +52,7 @@ class CudaPlatform(Platform):
     _enum = PlatformEnum.CUDA
     device_name: str = "cuda"
     device_type: str = "cuda"
-
-    @classmethod
-    def get_device_control_env_var(cls, device_ids):
-        return {
-            "CUDA_VISIBLE_DEVICES": ",".join(
-                str(device_id_to_physical_device_id(idx)) for idx in device_ids
-            )
-        }
+    device_control_env_var: str = "CUDA_VISIBLE_DEVICES"
 
     @classmethod
     def get_all_deivce_indices(cls) -> list[int]:
@@ -97,7 +90,7 @@ class CudaPlatform(Platform):
     @with_nvml_context
     def get_proc_memory_usage(
         cls,
-        pid_or_proc: Union[int, psutil.Process] | None = None,
+        pid_or_proc: int | psutil.Process | None = None,
         device_id: int = 0,
         include_children: bool = False,
     ):

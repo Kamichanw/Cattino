@@ -17,7 +17,15 @@ from cattino.cli.console import console
     "-A",
     is_flag=True,
     default=False,
-    help="Kill all running tasks or match names by regex expressions.",
+    help="Kill all tasks.",
+)
+@click.option(
+    "--regex",
+    "-r",
+    "use_regex",
+    is_flag=True,
+    default=False,
+    help="Interpret the provided name as a regular expression.",
 )
 @click.option(
     "--filter",
@@ -35,19 +43,20 @@ from cattino.cli.console import console
 )
 @click.argument("name", type=str, required=False)
 @fetch_from_msgbox
-def kill(all: bool, force: bool, filter_: str | None, name: str | None):
+def kill(all: bool, use_regex: bool, force: bool, filter_: str | None, name: str | None):
     """
     Kill running tasks.
 
-    Terminate one or more tasks. Specify a task `name`, use `-A/--all` to match
-    by name (regex), or provide `--filter` with a Python expression that
+    Terminate one or more tasks. Specify a task `name`, use `-A/--all` to select
+    all tasks, use `-r/--regex` to interpret the provided name as a regular
+    expression, or provide `--filter` with a Python expression that
     receives a `task` object to select targets. Use `-f/--force` to force
     termination.
 
     \b
     Examples:
       meow kill mytask
-      meow kill -A "^group/.*" --filter "task.status == TaskStatus.Running"
+      meow kill -r "^group/.*" --filter "task.status == TaskStatus.Running"
     """
 
     if name and "backend" in name:
@@ -56,11 +65,15 @@ def kill(all: bool, force: bool, filter_: str | None, name: str | None):
         )
         sys.exit(1)
 
-    if not name and not all and not filter_:
+    if name and all:
+        console.print("Options -A/--all and NAME cannot be used together.")
+        sys.exit(1)
+
+    if not name and not all and not filter_ and not use_regex:
         console.print("No task name provided.")
         sys.exit(1)
 
-    response = BackendRequest.kill(name, force=force, use_regex=all, filter=filter_)
+    response = BackendRequest.kill(name, force=force, use_regex=use_regex, filter=filter_)
     print_response(
         response,
         lambda success: (
@@ -76,3 +89,5 @@ def kill(all: bool, force: bool, filter_: str | None, name: str | None):
             f"{get_path_tree_str(failure) } failed to kill." if failure else None
         ),
     )
+    if response.error():
+        sys.exit(1)

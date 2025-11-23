@@ -14,3 +14,4 @@ CATTINO_HOST = os.getenv("CATTINO_HOST", "localhost")
 CATTINO_PORT = int(os.getenv("CATTINO_PORT", 19192))
 
 CATTINO_RETRY_EXIT_CODE = 100
+CATTINO_INVISIBLE_TASK_PREFIX = "__cattino_invisible_"

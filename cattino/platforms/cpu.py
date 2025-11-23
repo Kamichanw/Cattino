@@ -1,7 +1,7 @@
-from typing import Any, Dict, List, Optional, Union
 import uuid
-from psutil import Process
 import psutil
+
+from psutil import Process
 
 from .interface import Platform, PlatformEnum
 
@@ -10,14 +10,7 @@ class CpuPlatform(Platform):
     _enum = PlatformEnum.CPU
     device_name: str = "cpu"
     device_type: str = "cpu"
-
-    @classmethod
-    def get_device_control_env_var(cls, device_ids: list[int]) -> dict[str, Any]:
-        """
-        Returns the environment variables to control device visibility.
-        For CPU, no device control is necessary.
-        """
-        return {}
+    device_control_env_var: str = "CPU_VISIBLE_MEMORY_NODES"
 
     @classmethod
     def get_all_deivce_indices(cls) -> list[int]:
@@ -29,11 +22,7 @@ class CpuPlatform(Platform):
 
     @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
-        """
-        Returns the device name.
-        For CPU, returns a generic 'CPU' string.
-        """
-        return "CPU"
+        return "cpu"
 
     @classmethod
     def get_device_uuid(cls, device_id: int = 0) -> str:
@@ -65,7 +54,7 @@ class CpuPlatform(Platform):
     @classmethod
     def get_proc_memory_usage(
         cls,
-        pid_or_proc: Union[int, Process] | None = None,
+        pid_or_proc: int | Process | None = None,
         device_id: int = 0,
         include_children: bool = False,
     ) -> int:

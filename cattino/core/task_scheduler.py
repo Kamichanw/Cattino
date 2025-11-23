@@ -1,16 +1,50 @@
 import asyncio
 import re
 import aiorwlock
+
 from dataclasses import dataclass, field
 from loguru import logger
 from typing import Iterable, Sequence, overload
+from functools import wraps
 
+from cattino.constants import CATTINO_INVISIBLE_TASK_PREFIX
 from cattino.core.path_tree import PathTree
 from cattino.tasks.interface import AbstractTask, Task, TaskGroup, TaskStatus
 from cattino.tasks.task_graph import TaskGraph
 from cattino.settings import settings
 from cattino.comms import MsgBoxRequest
 from cattino.utils import get_cache_dir
+
+
+def _filter_invisible(func):
+    """Decorator for scheduler query methods to hide invisible tasks."""
+
+    def filter_task(res):
+        if res is None:
+            return None
+        if isinstance(res, list):
+            return [
+                t
+                for t in res
+                if not getattr(t, "fullname", getattr(t, "name", "")).startswith(
+                    CATTINO_INVISIBLE_TASK_PREFIX
+                )
+            ]
+        if getattr(res, "fullname", getattr(res, "name", "")).startswith(
+            CATTINO_INVISIBLE_TASK_PREFIX
+        ):
+            return None
+        return res
+
+    @wraps(func)
+    async def _async_wrapper(*args, **kwargs):
+        return filter_task(await func(*args, **kwargs))
+
+    @wraps(func)
+    def _sync_wrapper(*args, **kwargs):
+        return filter_task(func(*args, **kwargs))
+
+    return _async_wrapper if asyncio.iscoroutinefunction(func) else _sync_wrapper
 
 
 @dataclass
@@ -203,9 +237,7 @@ class TaskScheduler:
             outter_nodes, key=lambda task: (-task.priority, task.create_time)
         )
         upcoming_task = next((t for t in sorted_candidates if t.is_ready), None)
-        if sorted_candidates:
-            print(sorted_candidates[0].fullname, sorted_candidates[0].is_ready)
-        print(
+        logger.debug(
             f"Upcoming task: {upcoming_task.fullname if upcoming_task else 'None'}"
         )
         if upcoming_task:
@@ -226,6 +258,7 @@ class TaskScheduler:
         """Get tasks by its name pattern."""
         ...
 
+    @_filter_invisible
     async def get_tasks(self, fullname_or_pattern) -> list[Task] | None:  # type: ignore
         if isinstance(fullname_or_pattern, re.Pattern):
             return [
@@ -246,28 +279,16 @@ class TaskScheduler:
             f"fullname must be str or re.Pattern, but got {type(fullname_or_pattern)}"
         )
 
-    async def get_task_object(self, fullname: str) -> AbstractTask | None:
-        """
-        Get task object by its fullname.
-        """
-        async with self._name_tree_lock.reader_lock:
-            try:
-                return self._name_tree[fullname]
-            except KeyError:
-                return None
-
+    @_filter_invisible
     @property
     async def all_tasks(self) -> list[Task]:
         """
         Get all tasks, including executed and pending tasks.
         """
         async with self._task_graph_lock.reader_lock:
-            return self._task_graph.tasks
+            return list(self._task_graph.tasks)
 
-    async def dispatch(
-        self,
-        task: AbstractTask,
-    ) -> None:
+    async def dispatch(self, task: AbstractTask) -> None:
         """
         Enqueue a task or a task group.
         """

@@ -115,7 +115,6 @@ class ProcTask(DeviceRequiredTask):
         ]:
             return
         self.terminate(force=True)
-        self.release_devices()
         self._is_cancelled = True
 
     @property
@@ -145,18 +144,6 @@ class ProcTask(DeviceRequiredTask):
                     f"Task {self.name} requires more memory than the specified limit per device."
                 )
         super(ProcTask, type(self)).requires_memory_per_device.__set__(self, value) # type: ignore
-
-    @property
-    def is_ready(self) -> bool:
-        """
-        Check whether the task is ready for execution.
-
-        Returns:
-            bool: True if the task is pending and device allocation is successful; False otherwise.
-        """
-        if self.status == TaskStatus.Waiting:
-            return self.acquire_devices()
-        return False
 
     def start(self) -> None:
         if not self.is_ready:

@@ -26,15 +26,8 @@ def device_id_to_physical_device_id(device_id: int) -> int:
 class AscendPlatform(Platform):
     _enum = PlatformEnum.ASCEND
     device_name: str = "ascend"
-    device_type: str = "ascend"
-
-    @classmethod
-    def get_device_control_env_var(
-        cls, physical_device_ids: list[int]
-    ) -> dict[str, Any]:
-        return {
-            "ASCEND_VISIBLE_DEVICES": ",".join(str(idx) for idx in physical_device_ids)
-        }
+    device_type: str = "npu"
+    device_control_env_var: str = "ASCEND_VISIBLE_DEVICES"
 
     @classmethod
     def get_all_deivce_indices(cls) -> list[int]:
@@ -46,7 +39,7 @@ class AscendPlatform(Platform):
 
     @classmethod
     def get_device_free_memory(cls, device_id: int = 0) -> int:
-        return 0
+        raise NotImplementedError
 
     @classmethod
     def get_device_uuid(cls, device_id: int = 0) -> str:

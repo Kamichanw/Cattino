@@ -132,7 +132,7 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("set")
-    def set_task_attr(name: str, attr: str, value: str, **kwargs) -> Response:
+    def set_task_attr(name: str | None, attr: str, value: str, use_regex: bool = False, filter: str | None = None, **kwargs) -> Response:
         """
         Set a specific attribute of a task to a new value.
 
@@ -145,7 +145,7 @@ class BackendRequest(Request):
             Response: A response object containing the status code and details of the task modification.
         """
         return Request.post(
-            Transmittable(name=name, attr=attr, value=value), **kwargs  # type: ignore
+            Transmittable(name=name, attr=attr, value=value, use_regex=use_regex, filter=filter), **kwargs  # type: ignore
         )
 
     @staticmethod

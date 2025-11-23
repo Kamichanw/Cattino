@@ -49,7 +49,7 @@ class DeviceAllocator:
             task._assigned_device_indices = []
             return
 
-        # get free memory that is not controlled by cattino
+        # get all memory excluding the memory occupied by unknown processes
         free_memory = {
             device_id: current_platform.get_device_free_memory(device_id)
             + current_platform.get_proc_memory_usage(
@@ -80,6 +80,7 @@ class DeviceAllocator:
             task (DeviceRequiredTask): The task to release.
         """
         if task in DeviceAllocator._running_tasks:
+            task._assigned_device_indices = None
             DeviceAllocator._running_tasks.remove(task)
 
     @classmethod
@@ -95,7 +96,8 @@ class DeviceAllocator:
         Returns:
             dict[str, str]: Environment variables for device visibility.
         """
-        return current_platform.get_device_control_env_var(assigned_device_indices)
+        env_key = current_platform.device_control_env_var
+        return {env_key: ",".join(str(idx) for idx in assigned_device_indices)}
 
     @classmethod
     @lru_cache

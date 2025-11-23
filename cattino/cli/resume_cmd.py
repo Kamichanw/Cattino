@@ -17,7 +17,7 @@ from cattino.cli.console import console
     "-A",
     is_flag=True,
     default=False,
-    help="Resume all tasks or match names by regex expressions.",
+    help="Resume all tasks.",
 )
 @click.option(
     "--filter",
@@ -26,14 +26,23 @@ from cattino.cli.console import console
     required=False,
     help="Filter tasks by a python expression that accept a argument 'task'.",
 )
+@click.option(
+    "--regex",
+    "-r",
+    "use_regex",
+    is_flag=True,
+    default=False,
+    help="Interpret the provided name as a regular expression.",
+)
 @click.argument("name", type=str, required=False)
 @fetch_from_msgbox
-def resume(all: bool, filter_: str | None, name: str | None):
+def resume(all: bool, use_regex: bool, filter_: str | None, name: str | None):
     """
     Resume cancelled or failed tasks.
 
     Resume tasks that are in `Cancelled` or `Failed` states. Targets can be
-    specified by `name`, matched with `-A/--all` (regex), or selected with
+    specified by `name`, selected with `-A/--all` (select all tasks), matched
+    with `-r/--regex` (interpret `name` as a regex), or selected with
     `--filter` (Python expression accepting `task`).
 
     \b
@@ -42,11 +51,15 @@ def resume(all: bool, filter_: str | None, name: str | None):
       meow resume --filter "task.priority >= 10"
     """
 
-    if not name and not all and not filter_:
+    if name and all:
+        console.print("Options -A/--all and NAME cannot be used together.")
+        sys.exit(1)
+
+    if not name and not all and not filter_ and not use_regex:
         console.print("No task name provided.")
         sys.exit(1)
 
-    response = BackendRequest.resume(name, use_regex=all, filter=filter_)
+    response = BackendRequest.resume(name, use_regex=use_regex, filter=filter_)
     print_response(
         response,
         lambda success: (
@@ -62,3 +75,5 @@ def resume(all: bool, filter_: str | None, name: str | None):
             f"{get_path_tree_str(failure) } failed to resume." if failure else None
         ),
     )
+    if response.error():
+        sys.exit(1)

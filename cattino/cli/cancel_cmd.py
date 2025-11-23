@@ -12,16 +12,25 @@ from cattino.cli.console import console
     "-A",
     is_flag=True,
     default=False,
-    help="Cancel all tasks or match names by regex expressions.",
+    help="Cacnel all tasks.",
+)
+@click.option(
+    "--regex",
+    "-r",
+    "use_regex",
+    is_flag=True,
+    default=False,
+    help="Interpret the provided name as a regular expression.",
 )
 @click.argument("name", type=str, required=False)
 @fetch_from_msgbox
-def cancel(all: bool, name: str | None):
+def cancel(all: bool, use_regex: bool, name: str | None):
     """
     Cancel running or waiting tasks.
 
-    Cancel tasks that are currently running or queued. Specify a task `name` or
-    use `-A/--all` to select by name (regex). The command returns which tasks
+    Cancel tasks that are currently running or queued. Specify a task `name`,
+    use `-A/--all` to select all tasks, or use `-r/--regex` to interpret the
+    provided name as a regular expression. The command returns which tasks
     were cancelled and which failed.
 
     Examples:
@@ -29,11 +38,15 @@ def cancel(all: bool, name: str | None):
       meow cancel -A "^group/.*"
     """
 
-    if not name and not all:
+    if name and all:
+        console.print("Options -A/--all and NAME cannot be used together.")
+        sys.exit(1)
+
+    if not name and not all and not use_regex:
         console.print("No task name provided.")
         sys.exit(1)
 
-    response = BackendRequest.cancel(name, use_regex=all)
+    response = BackendRequest.cancel(name, use_regex=use_regex)
     print_response(
         response,
         lambda success: (
@@ -49,3 +62,5 @@ def cancel(all: bool, name: str | None):
             f"{get_path_tree_str(failure) } failed to cancell." if failure else None
         ),
     )
+    if response.error():
+        sys.exit(1)

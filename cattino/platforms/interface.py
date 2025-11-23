@@ -1,6 +1,5 @@
 # Modified from vLLM's codebase to cattino's codebase.
 import enum
-from typing import Dict, List, Optional, Union
 
 from psutil import Process
 
@@ -22,6 +21,7 @@ class Platform:
     _enum: PlatformEnum
     device_name: str
     device_type: str
+    device_control_env_var: str
 
     def is_cuda(self) -> bool:
         return self._enum == PlatformEnum.CUDA
@@ -60,16 +60,6 @@ class Platform:
         raise NotImplementedError
 
     @classmethod
-    def get_device_control_env_var(cls, device_ids: list[int]) -> dict[str, str]:
-        """
-        Get a dictionary to set device control environment variable.
-        For example, for GPU, this method should return something like
-        `{ "CUDA_VISIBLE_DEVICES": [0, 1, 2] }`. Note that this method
-        should convert the device IDs to the physical device IDs.
-        """
-        raise NotImplementedError
-
-    @classmethod
     def get_device_name(cls, device_id: int = 0) -> str:
         """Get the name of a device."""
         raise NotImplementedError
@@ -92,7 +82,7 @@ class Platform:
     @classmethod
     def get_proc_memory_usage(
         cls,
-        pid_or_proc: Union[int, Process] | None = None,
+        pid_or_proc: int | Process | None = None,
         device_id: int = 0,
         include_children: bool = False,
     ) -> int:

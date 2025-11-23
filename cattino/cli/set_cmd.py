@@ -1,6 +1,9 @@
 import ast
 import click
 import sys
+
+from typing import Any, get_origin, get_args
+
 from cattino.cli.main import main
 from cattino.comms import BackendRequest
 from cattino.cli.utils import fetch_from_msgbox, MagicString
@@ -9,30 +12,40 @@ from cattino import settings
 
 
 @main.command(help="Change settings or task attributes")
-@click.argument("setting_or_task_attr", type=str)
-@click.argument("value", type=MagicString())
+@click.option(
+    "--regex",
+    "-r",
+    "use_regex",
+    is_flag=True,
+    default=False,
+    help="Interpret the provided name as a regular expression.",
+)
+@click.option(
+    "--filter",
+    "filter_",
+    type=MagicString(),
+    required=False,
+    help="Filter tasks by a python expression that accepts a `task` argument.",
+)
+@click.argument("args", nargs=-1, type=MagicString())
 @fetch_from_msgbox
-def set_cmd(setting_or_task_attr: str, value: str):
+def set_cmd(args: tuple, use_regex: bool, filter_: str | None):
     """
     Change settings or task attributes.
 
     Update global settings or set attributes on a specific task. To modify a
-    task attribute use the form `taskname.attr` as the first argument. For
+    task attribute use the form `taskname attr` as the first and second argument. For
     global settings use the setting name. Values are parsed where possible.
 
     \b
     Examples:
         meow set log-level DEBUG
-        meow set mytask.retries 3
+        meow set mytask retries 3
     """
-    if "." in setting_or_task_attr:
-        name, attr = setting_or_task_attr.rsplit(".", 1)
-        if (response := BackendRequest.set_task_attr(name, attr, value)).error():
-            console.print(response.detail)
-            sys.exit(1)
-        console.print(f"{name}.{attr} set to {value} successfully.")
-    else:
-        setting = setting_or_task_attr
+    # Expect either 2 args (global setting) or 3 args (task attribute set)
+    if len(args) == 2:
+        # global setting: `meow set KEY VALUE`
+        setting, value = args[0], args[1]
         key = setting.replace("-", "_")
 
         if key not in settings.default_settings:
@@ -53,10 +66,7 @@ def set_cmd(setting_or_task_attr: str, value: str):
         ) is not None:
             settings._home = response.home  # type: ignore
 
-        from typing import Any, get_origin, get_args
-
         def _coerce_value(expected_type: Any, raw: Any) -> Any:
-            # if already not a string, assume it's fine
             if not isinstance(raw, str):
                 return raw
 
@@ -99,24 +109,36 @@ def set_cmd(setting_or_task_attr: str, value: str):
             # fallback to permissive
             return True
 
-        try:
-            assert key is not None
-            old_value = settings.all_settings[key]
-            expected = settings.get_type(key)
-            coerced = _coerce_value(expected, value)
+        assert key is not None
+        old_value = settings.all_settings[key]
+        expected = settings.get_type(key)
+        coerced = _coerce_value(expected, value)
 
-            # check compatibility and warn/exit if mismatch
-            if not _is_compatible(expected, coerced):
-                console.print(
-                    f"Type mismatch: setting '{setting}' expects {expected!r} but got {type(coerced).__name__}"
-                )
-                sys.exit(1)
-
-            setattr(settings, key, coerced)
-            if settings.all_settings[key] != old_value:
-                console.print(f"Setting {setting} updated to {coerced}.")
-            else:
-                console.print(f"Setting {setting} has already to be set to {coerced}.")
-        except Exception as e:
-            console.print(f"Error setting {setting}: {e}")
+        # check compatibility and warn/exit if mismatch
+        if not _is_compatible(expected, coerced):
+            console.print(
+                f"Type mismatch: setting '{setting}' expects {expected!r} but got {type(coerced).__name__}"
+            )
             sys.exit(1)
+
+        setattr(settings, key, coerced)
+        if settings.all_settings[key] != old_value:
+            console.print(f"Setting {setting} updated to {coerced}.")
+        else:
+            console.print(f"Setting {setting} has already to be set to {coerced}.")
+    elif len(args) == 3:
+        # task attribute mode: `meow set TASK ATTR VALUE`
+        name, attr, value = args[0], args[1], args[2]
+        response = BackendRequest.set_task_attr(
+            name, attr, value, use_regex=use_regex, filter=filter_
+        )
+        if getattr(response, "detail", None):
+            console.print(response.detail)
+        if response.error():
+            sys.exit(1)
+    else:
+        # invalid usage
+        console.print(
+            "Invalid usage. Use `meow set KEY VALUE` or `meow set TASK ATTR VALUE`."
+        )
+        sys.exit(1)

@@ -373,6 +373,14 @@ class Magics:
 
 
 class InterceptHandler(logging.Handler):
+    """
+    InterceptHandler(logging.Handler)
+
+    A logging.Handler that forwards standard library logging.LogRecord objects to Loguru's `logger`. 
+    It adapts record information so the external logger receives the original message text, level, 
+    and exception context, and so the reported caller location reflects the original logging 
+    call site rather than internals of the logging module.
+    """
     def emit(self, record: logging.LogRecord) -> None:
         try:
             level = logger.level(record.levelname).name
@@ -413,7 +421,7 @@ def setup_logger(colorize: bool = True):
             seen_once_messages.add(message_key)
         
         if not settings.debugging:
-            return record["level"].no > logger.level("INFO").no
+            return record["level"].no >= logger.level("INFO").no
         return True
 
     logger.add(
@@ -427,10 +435,10 @@ def setup_logger(colorize: bool = True):
         colorize=colorize,
     )
 
+    # forward all stdlib loggers to loguru, including 3rd-party libraries
     logger_name_list = [name for name in logging.root.manager.loggerDict]
     for logger_name in logger_name_list:
         _logger = logging.getLogger(logger_name)
-        _logger.setLevel(logging.INFO)
         _logger.handlers = []
-        if "." not in logger_name:
+        if "." not in logger_name: # if it is a root logger
             _logger.addHandler(InterceptHandler())

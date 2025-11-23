@@ -22,7 +22,6 @@ from cattino.comms import (
     Transmittable,
     MsgBoxRequest,
     start_msgbox,
-    start_ghost,
     send_msg_on_error,
 )
 from cattino.core.task_scheduler import TaskScheduler
@@ -61,7 +60,6 @@ async def lifespan(app: FastAPI):
             settings.msgbox_port,
             cache_dir if app.state.redirect_output else None,
         )
-        ghost_proc = await start_ghost(app.state.host, settings.ghost_port)
 
         # create main loop to schedule tasks
         async def main_loop():
@@ -108,8 +106,6 @@ async def lifespan(app: FastAPI):
         shutdown_event.set()
         if msgbox_proc.returncode is None:
             msgbox_proc.terminate()
-        if ghost_proc.returncode is None:
-            ghost_proc.terminate()
         await asyncio.gather(*tasks)
         await task_scheduler.remove(await task_scheduler.all_tasks)
 
@@ -298,36 +294,44 @@ async def list(filter: str | None = None, attrs: str = ""):
 @app.post("/set", response_model=Response)
 @send_msg_on_error(tag="backend")
 async def set_task_attr(request: BackendRequest = Depends(load_backend_request)):
-    scheduler: TaskScheduler = app.state.task_scheduler
+    """Set attributes on one or more tasks. Supports nested attribute paths like `a.b` and
+    selection via regex or filter expressions.
+    """
     name, attr, value = request.name, request.attr, request.value  # type: ignore
-    task = await scheduler.get_task_object(name)
-    if task is None:
-        return Response(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {name} not found.",
-        )
-    if not hasattr(task, attr):
-        return Response(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Task {name} has no attribute {attr}.",
-        )
-    if attr not in type(task).SETTABLE_ATTRS:
-        return Response(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Task {name} attribute {attr} is not settable. Only {type(task).SETTABLE_ATTRS} are settable.",
-        )
-    try:
-        if isinstance(getattr(task, attr), str):
-            setattr(task, attr, value)
-        else:
-            setattr(task, attr, eval(value))
-    except Exception as e:
-        logger.exception(e)
-        return Response(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to set attribute {attr} for task {name}: {e}",
-        )
-    return Response(status_code=status.HTTP_200_OK)
+    use_regex = getattr(request, "use_regex", False)
+    filter_expr = getattr(request, "filter", None)
+
+    if not attr:
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, detail="Attribute name is required.")
+
+    async def _set_attr(tasks: builtins.list[Task | TaskGroup]):
+        # tasks is a sequence of Task
+        for task in tasks:
+            parts = attr.split(".")
+            top = parts[0]
+            # ensure the top-level attribute is settable on this task type
+            if top not in type(task).SETTABLE_ATTRS:
+                raise ValueError(f"Task {task.fullname} attribute {top} is not settable. Only {type(task).SETTABLE_ATTRS} are settable.")
+
+            cur = task
+            # traverse intermediate attributes
+            for p in parts[:-1]:
+                if not hasattr(cur, p):
+                    raise AttributeError(f"Task {task.fullname} has no attribute {p} while resolving {attr}.")
+                cur = getattr(cur, p)
+
+            last = parts[-1]
+            if not hasattr(cur, last):
+                raise AttributeError(f"Task {task.fullname} has no attribute {last} for {attr}.")
+
+            old = getattr(cur, last)
+            if isinstance(old, str):
+                setattr(cur, last, value)
+            else:
+                setattr(cur, last, eval(value))
+
+    # delegate selection and per-task error handling to process_tasks
+    return await process_tasks(name, _set_attr, use_regex=use_regex, filter=filter_expr)
 
 
 @app.post("/create", response_model=TaskResponse)

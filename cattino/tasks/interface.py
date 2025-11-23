@@ -238,8 +238,9 @@ class DeviceRequiredTask(Task):
         """
         super().__init__(task_name=task_name, priority=priority)
         self._allocator = DeviceAllocator()
-        # this property will be set by the allocator
-        self._assigned_device_indices: list[int] | None = None
+        self._assigned_device_indices: list[int] | None = (
+            None  # this property will be set by the allocator
+        )
         self._requires_memory_per_device: int = 0
         self._min_devices: int = 1
         self.requires_memory_per_device = requires_memory_per_device
@@ -251,6 +252,18 @@ class DeviceRequiredTask(Task):
         Get the memory required per device in MiB.
         """
         return self._requires_memory_per_device
+    
+    @property
+    def is_ready(self) -> bool:
+        """
+        Check whether the task is ready for execution.
+
+        Returns:
+            bool: True if the task is pending and device allocation is successful; False otherwise.
+        """
+        if self.status == TaskStatus.Waiting:
+            return self.acquire_devices()
+        return False
 
     @requires_memory_per_device.setter
     def requires_memory_per_device(self, value: Union[int, float]) -> None:
@@ -290,7 +303,7 @@ class DeviceRequiredTask(Task):
         if self.assigned_device_indices is not None:
             if value > len(self.assigned_device_indices):
                 raise ValueError(
-                    f"Cannot set min_devices to {value}, "
+                    f"Cannot set {self.fullname}.min_devices to {value}, "
                     f"already assigned {len(self.assigned_device_indices)} devices."
                 )
 

@@ -10,6 +10,12 @@ from cattino.cli.console import console
 
 
 @main.command(name="exit")
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Forcefully kill the backend process if it is running."
+)
 @fetch_from_msgbox
 def exit_cmd(force: bool = False):
     """
@@ -40,4 +46,4 @@ def exit_cmd(force: bool = False):
             console.print(response.detail)
             sys.exit(1)
 
-        console.print("Backend exiting...")
+    console.print("Backend exiting...")

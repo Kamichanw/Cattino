@@ -41,9 +41,17 @@ from cattino.cli.console import console
     default=False,
     help="Force kill tasks.",
 )
+@click.option(
+    "--yes",
+    "-y",
+    "yes",
+    is_flag=True,
+    default=False,
+    help="Assume yes (don't prompt).",
+)
 @click.argument("name", type=str, required=False)
 @fetch_from_msgbox
-def kill(all: bool, use_regex: bool, force: bool, filter_: str | None, name: str | None):
+def kill(all: bool, use_regex: bool, force: bool, filter_: str | None, yes: bool, name: str | None):
     """
     Kill running tasks.
 

@@ -279,8 +279,8 @@ class TaskScheduler:
             f"fullname must be str or re.Pattern, but got {type(fullname_or_pattern)}"
         )
 
-    @_filter_invisible
     @property
+    @_filter_invisible
     async def all_tasks(self) -> list[Task]:
         """
         Get all tasks, including executed and pending tasks.

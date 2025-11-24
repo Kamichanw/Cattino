@@ -249,6 +249,7 @@ async def cancel(request: BackendRequest = Depends(load_backend_request)):
         scheduler.cancel,
         [TaskStatus.Running, TaskStatus.Waiting],
         use_regex=request.use_regex,  # type: ignore
+        filter=request.filter,  # type: ignore
     )
 
 

@@ -3,7 +3,7 @@ import time
 import sys
 import subprocess
 
-from typing import Optional, Sequence, Tuple
+from typing import Sequence, Tuple
 from fastapi import status
 from pathlib import Path
 
@@ -102,6 +102,7 @@ class BackendRequest(Request):
             name (str, *optional*): The full name of task to kill. If None, kill all tasks.
             force (bool): Whether to force kill the task. Default is False.
             use_regex (bool): Whether to match task names using regex. Default is False.
+            filter (str, *optional*): An optional backend-level filter expression to limit which tasks are affected.
             **kwargs: Additional keyword arguments for the request.
 
         Returns:
@@ -132,7 +133,14 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("set")
-    def set_task_attr(name: str | None, attr: str, value: str, use_regex: bool = False, filter: str | None = None, **kwargs) -> Response:
+    def set_task_attr(
+        name: str | None,
+        attr: str,
+        value: str,
+        use_regex: bool = False,
+        filter: str | None = None,
+        **kwargs,
+    ) -> Response:
         """
         Set a specific attribute of a task to a new value.
 
@@ -140,6 +148,9 @@ class BackendRequest(Request):
             name (str): The name of the task to modify.
             attr (str): The attribute to set.
             value (str): The new value for the attribute.
+            use_regex (bool): Whether to match task names using regex. Default is False.
+            filter (str, *optional*): An optional backend-level filter expression to limit which tasks are affected.
+            **kwargs: Additional keyword arguments for the request.
 
         Returns:
             Response: A response object containing the status code and details of the task modification.
@@ -150,29 +161,35 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("cancel", return_response_cls=TaskResponse)
-    def cancel(name: str | None, use_regex: bool = False, **kwargs) -> TaskResponse:
+    def cancel(
+        name: str | None, use_regex: bool = False, filter: str | None = None, **kwargs
+    ) -> TaskResponse:
         """
         Cancel tasks by name or regex expression. If no name is provided, all tasks will be cancelled.
 
         Args:
             name (str, *optional*): The full name of task to cancel. If None, cancel all tasks.
             use_regex (bool): Whether to match task names using regex. Default is False.
+            filter (str, *optional*): An optional backend-level filter expression to limit which tasks are affected.
             **kwargs: Additional keyword arguments for the request.
 
         Returns:
             TaskResponse: A response object containing the status code and details of the task cancellation.
         """
-        return Request.post(Transmittable(name=name, use_regex=use_regex), **kwargs)  # type: ignore
+        return Request.post(Transmittable(name=name, use_regex=use_regex, filter=filter), **kwargs)  # type: ignore
 
     @staticmethod
     @communicate("resume", return_response_cls=TaskResponse)
-    def resume(name: str | None, use_regex: bool = False, filter: str | None = None, **kwargs) -> TaskResponse:
+    def resume(
+        name: str | None, use_regex: bool = False, filter: str | None = None, **kwargs
+    ) -> TaskResponse:
         """
         Resume tasks by name or regex expression. If no name is provided, all tasks will be resumed.
 
         Args:
             name (str, *optional*): The full name of task to resume. If None, resume all tasks.
             use_regex (bool): Whether to match task names using regex. Default is False.
+            filter (str, *optional*): An optional backend-level filter expression to limit which tasks are affected.
             **kwargs: Additional keyword arguments for the request.
 
         Returns:
@@ -182,13 +199,16 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("remove", return_response_cls=TaskResponse)
-    def remove(name: str | None, use_regex: bool = False, filter: str | None = None, **kwargs) -> TaskResponse:
+    def remove(
+        name: str | None, use_regex: bool = False, filter: str | None = None, **kwargs
+    ) -> TaskResponse:
         """
         Remove tasks by name or regex expression. If no name is provided, all tasks will be removed.
 
         Args:
             name (str, *optional*): The full name of task to remove. If None, remove all tasks.
             use_regex (bool): Whether to match task names using regex. Default is False.
+            filter (str, *optional*): An optional backend-level filter expression to limit which tasks are affected.
             **kwargs: Additional keyword arguments for the request.
 
         Returns:
@@ -229,8 +249,6 @@ class BackendRequest(Request):
             return Request.get(kwargs["url"])  # type: ignore
         else:
             return Request.get(f"{kwargs['url']}/{name}")  # type: ignore
-
-    
 
 
 def where() -> str:

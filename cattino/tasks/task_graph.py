@@ -31,21 +31,21 @@ class TaskGraph:
         Args:
             predicate (Callable): A function taking a task as input, which returns `True` if the task
                 should appear in the subgraph.
-        
+
         Returns:
             nx.DiGraph: A read-only graph view of the task graph, filtered by the predicate.
         """
-        return nx.subgraph_view( # type: ignore
+        return nx.subgraph_view(  # type: ignore
             self._graph,
             filter_node=predicate,
         )
 
     def add_task(self, task: AbstractTask):
         """Add a task or task group to the task graph."""
-        if issubclass(type(task), TaskGroup):
-            self._graph.add_nodes_from(task.all_tasks)  # type: ignore
+        if isinstance(task, TaskGroup):
+            self._graph.add_nodes_from(task.all_tasks)
         else:
-            self._graph.add_node(task)  # type: ignore
+            self._graph.add_node(task)
 
     def add_tasks_from(self, tasks: Sequence[AbstractTask]):
         """Add multiple tasks or task groups to the task graph."""
@@ -57,11 +57,11 @@ class TaskGraph:
         Add a dependency edge from task u to task v, which means task u must be executed before task v.
         If u or v is a task group, all tasks from u will add edges to all tasks in v.
         """
-        if issubclass(type(u), Task) and issubclass(type(v), Task):
-            self._graph.add_edge(u, v)  # type: ignore
+        if isinstance(u, Task) and isinstance(v, Task):
+            self._graph.add_edge(u, v)
         else:
-            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks  # type: ignore
-            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks  # type: ignore
+            u_tasks = [u] if isinstance(u, Task) else u.all_tasks  # type: ignore
+            v_tasks = [v] if isinstance(v, Task) else v.all_tasks  # type: ignore
             self._graph.add_edges_from([(ut, vt) for ut in u_tasks for vt in v_tasks])
 
     def add_edges_from(self, edges: list[Tuple[AbstractTask, AbstractTask]]):
@@ -71,7 +71,7 @@ class TaskGraph:
 
     def remove_task(self, task: AbstractTask):
         """Remove a task or all tasks from a group from the task graph."""
-        tasks = task.all_tasks if issubclass(type(task), TaskGroup) else [task]  # type: ignore
+        tasks = task.all_tasks if isinstance(task, TaskGroup) else [task]
         self._graph.remove_nodes_from(tasks)
 
     def remove_tasks_from(self, tasks: list[AbstractTask]):
@@ -81,11 +81,11 @@ class TaskGraph:
 
     def remove_edge(self, u: AbstractTask, v: AbstractTask):
         """Remove a dependency edge from task u to task v."""
-        if issubclass(type(u), Task) and issubclass(type(v), Task):
-            self._graph.remove_edge(u, v)  # type: ignore
+        if isinstance(u, Task) and isinstance(v, Task):
+            self._graph.remove_edge(u, v)
         else:
-            u_tasks = [u] if issubclass(type(u), Task) else u.all_tasks  # type: ignore
-            v_tasks = [v] if issubclass(type(v), Task) else v.all_tasks  # type: ignore
+            u_tasks = [u] if isinstance(u, Task) else u.all_tasks  # type: ignore
+            v_tasks = [v] if isinstance(v, Task) else v.all_tasks  # type: ignore
             for ut in u_tasks:
                 for vt in v_tasks:
                     self._graph.remove_edge(ut, vt)

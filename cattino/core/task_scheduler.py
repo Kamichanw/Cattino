@@ -23,14 +23,8 @@ def _filter_invisible(func):
         if res is None:
             return None
         if isinstance(res, list):
-            return [
-                t
-                for t in res
-                if not getattr(t, "fullname", getattr(t, "name", "")).startswith(
-                    CATTINO_INVISIBLE_TASK_PREFIX
-                )
-            ]
-        if getattr(res, "fullname", getattr(res, "name", "")).startswith(
+            return [filter_task(t) for t in res]
+        if isinstance(res, AbstractTask) and res.fullname.startswith(
             CATTINO_INVISIBLE_TASK_PREFIX
         ):
             return None
@@ -132,9 +126,9 @@ class TaskScheduler:
             is_pristine = len(group_info.remaining) == len(group_info.total)
 
             return is_pristine and all(
-                is_subgroup_first(sub_g)  # type: ignore
+                is_subgroup_first(sub_g)
                 for sub_g in g.subtasks
-                if issubclass(type(sub_g), TaskGroup)
+                if isinstance(sub_g, TaskGroup)
             )
 
         def gather_pre_hook_tasks(task: AbstractTask):
@@ -167,7 +161,7 @@ class TaskScheduler:
 
             for t in pre_hook_tasks:
                 logger.info(
-                    f"{'Group' if issubclass(type(t), TaskGroup) else 'Task'} {t.fullname} started."
+                    f"{'Group' if isinstance(t, TaskGroup) else 'Task'} {t.fullname} started."
                 )
                 t.on_start()
             task.start()
@@ -184,7 +178,7 @@ class TaskScheduler:
             logger.info(f"Task {task.fullname} finished with status {task.status}")
             for t in post_hook_tasks:
                 logger.info(
-                    f"{'Group' if issubclass(type(t), TaskGroup) else 'Task'} {t.fullname} ended."
+                    f"{'Group' if isinstance(t, TaskGroup) else 'Task'} {t.fullname} ended."
                 )
                 t.on_end()
         except Exception as e:
@@ -271,7 +265,7 @@ class TaskScheduler:
             async with self._name_tree_lock.reader_lock:
                 try:
                     selected_tasks = self._name_tree[fullname_or_pattern]
-                    return [selected_tasks] if issubclass(type(selected_tasks), Task) else selected_tasks.all_tasks  # type: ignore
+                    return [selected_tasks] if isinstance(selected_tasks, Task) else selected_tasks.all_tasks  # type: ignore
                 except KeyError:
                     return None
 
@@ -320,8 +314,8 @@ class TaskScheduler:
                         [self._name_tree[name] for name in duplicate_task_names]  # type: ignore
                     )
 
-        if issubclass(type(task), TaskGroup):
-            await check_duplicate(task.all_tasks)  # type: ignore
+        if isinstance(task, TaskGroup):
+            await check_duplicate(task.all_tasks)
 
             def set_group_info(group: TaskGroup):
                 group_info = GroupInfo(
@@ -330,15 +324,15 @@ class TaskScheduler:
                 )
                 for t in group.subtasks:
                     self._group_info[t] = group_info
-                    if issubclass(type(t), TaskGroup):
-                        set_group_info(t)  # type: ignore
+                    if isinstance(t, TaskGroup):
+                        set_group_info(t)
                     else:
                         self._name_tree[t.fullname] = t
                 self._name_tree[group.fullname] = group
 
             # group info lock is no need here
             async with self._name_tree_lock.writer_lock:
-                set_group_info(task)  # type: ignore
+                set_group_info(task)
         else:
             await check_duplicate([task])  # type: ignore
 

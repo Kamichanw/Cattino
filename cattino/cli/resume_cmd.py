@@ -5,7 +5,6 @@ from cattino.comms import BackendRequest
 from cattino.cli.utils import (
     fetch_from_msgbox,
     print_response,
-    get_path_tree_str,
     MagicString,
 )
 from cattino.cli.console import console
@@ -60,20 +59,6 @@ def resume(all: bool, use_regex: bool, filter_: str | None, name: str | None):
         sys.exit(1)
 
     response = BackendRequest.resume(name, use_regex=use_regex, filter=filter_)
-    print_response(
-        response,
-        lambda success: (
-            f"{len(success) if success else 0} tasks resumed successfully."
-            if response.ok()
-            else (
-                f"{get_path_tree_str(success) } resumed successfully."
-                if success
-                else None
-            )
-        ),
-        lambda failure: (
-            f"{get_path_tree_str(failure) } failed to resume." if failure else None
-        ),
-    )
+    print_response(response)
     if response.error():
         sys.exit(1)

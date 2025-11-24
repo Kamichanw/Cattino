@@ -171,9 +171,11 @@ async def process_tasks(
         except ValueError as e:
             return Response(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    success, failure, exception = [], [], []
+    success, failure, no_op = [], [], []
+    exception = None
     allow_status = allow_status or builtins.list(TaskStatus)
     if not is_take_sequence_func:
+        exception = []
         for task in tasks:
             if task.status in allow_status:
                 try:
@@ -183,7 +185,10 @@ async def process_tasks(
                     logger.exception(e)
                     exception.append(f"Task {task.fullname} failed: {str(e)}")
                     failure.append(task.fullname)
+            else:
+                no_op.append(task.fullname)
     else:
+        no_op.extend([t.fullname for t in tasks if t.status not in allow_status])
         if tasks := [t for t in tasks if t.status in allow_status]:
             try:
                 await func(tasks, **func_kwargs)
@@ -191,9 +196,11 @@ async def process_tasks(
             except Exception as e:
                 logger.exception(e)
                 failure.extend([t.fullname for t in tasks])
-                exception.append(f"Some tasks failed: {str(e)}")
+                exception = str(e)
 
-    return TaskResponse(success=success, failure=failure, detail="\n".join(exception))
+    return TaskResponse(
+        success=success, failure=failure, no_op=no_op, exception=exception
+    )
 
 
 def load_backend_request(message: UploadFile = File(...), request: fastapi.Request = None):  # type: ignore
@@ -268,28 +275,52 @@ async def resume(request: BackendRequest = Depends(load_backend_request)):
 
 @app.get("/list", response_model=Response)
 @send_msg_on_error(tag="backend")
-async def list(filter: str | None = None, attrs: str = ""):
+async def list(
+    name: str | None = None,
+    use_regex: bool = False,
+    filter: str | None = None,
+    attrs: str = "",
+):
     attrs = attrs.split()  # type: ignore
     scheduler: TaskScheduler = app.state.task_scheduler
-    all_tasks = await scheduler.all_tasks
+
+    # select tasks by name (supports regex when use_regex is True)
+    if name:
+        tasks = await scheduler.get_tasks(re.compile(name) if use_regex else name)
+        if tasks is None:
+            filtered_tasks = []
+        else:
+            filtered_tasks = tasks
+    else:
+        filtered_tasks = await scheduler.all_tasks
+
+    # apply filter expression if provided
     if filter:
         try:
-            filtered_tasks = _filter_tasks(all_tasks, filter)
+            filtered_tasks = _filter_tasks(filtered_tasks, filter)
         except ValueError as e:
             return Response(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    else:
-        filtered_tasks = all_tasks
 
-    return Response(
-        status_code=status.HTTP_200_OK,
-        results=[
-            {
-                "name": task.fullname,
-                **{attr: getattr(task, attr, None) for attr in attrs},
-            }
-            for task in filtered_tasks
-        ],
-    )
+    def _get_nested_attr(obj, attr_path: str):
+        """Resolve dotted attribute path (e.g. 'a.b.c') on obj, returning None if any part missing."""
+        if not attr_path:
+            return None
+        val = obj
+        for part in attr_path.split("."):
+            try:
+                val = getattr(val, part)
+            except Exception:
+                return None
+            if val is None:
+                return None
+        return val
+
+    return Response(status_code=status.HTTP_200_OK, results=[
+        {
+            "name": task.fullname,
+            **{attr: _get_nested_attr(task, attr) for attr in attrs}
+        } for task in filtered_tasks
+    ])
 
 
 @app.post("/set", response_model=Response)
@@ -303,7 +334,10 @@ async def set_task_attr(request: BackendRequest = Depends(load_backend_request))
     filter_expr = getattr(request, "filter", None)
 
     if not attr:
-        return Response(status_code=status.HTTP_400_BAD_REQUEST, detail="Attribute name is required.")
+        return Response(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Attribute name is required.",
+        )
 
     async def _set_attr(tasks: builtins.list[Task | TaskGroup]):
         # tasks is a sequence of Task
@@ -312,18 +346,24 @@ async def set_task_attr(request: BackendRequest = Depends(load_backend_request))
             top = parts[0]
             # ensure the top-level attribute is settable on this task type
             if top not in type(task).SETTABLE_ATTRS:
-                raise ValueError(f"Task {task.fullname} attribute {top} is not settable. Only {type(task).SETTABLE_ATTRS} are settable.")
+                raise ValueError(
+                    f"Task {task.fullname} attribute {top} is not settable. Only {type(task).SETTABLE_ATTRS} are settable."
+                )
 
             cur = task
             # traverse intermediate attributes
             for p in parts[:-1]:
                 if not hasattr(cur, p):
-                    raise AttributeError(f"Task {task.fullname} has no attribute {p} while resolving {attr}.")
+                    raise AttributeError(
+                        f"Task {task.fullname} has no attribute {p} while resolving {attr}."
+                    )
                 cur = getattr(cur, p)
 
             last = parts[-1]
             if not hasattr(cur, last):
-                raise AttributeError(f"Task {task.fullname} has no attribute {last} for {attr}.")
+                raise AttributeError(
+                    f"Task {task.fullname} has no attribute {last} for {attr}."
+                )
 
             old = getattr(cur, last)
             if isinstance(old, str):
@@ -339,7 +379,7 @@ async def set_task_attr(request: BackendRequest = Depends(load_backend_request))
 @send_msg_on_error(tag="backend")
 async def create_task(request: BackendRequest = Depends(load_backend_request)):
     scheduler: TaskScheduler = app.state.task_scheduler
-    success, failure, exception = [], [], []
+    success, failure, exception, no_op = [], [], [], []
     for task in request.tasks:  # type: ignore
         fullname = task.fullname
         try:
@@ -347,20 +387,24 @@ async def create_task(request: BackendRequest = Depends(load_backend_request)):
         except Exception as e:
             logger.exception(e)
             failure.append(fullname)
-            exception.append(f"Task failed: {fullname}")
+            exception.append(str(e))
             continue
-        if issubclass(type(task), TaskGroup):
+        if isinstance(task, TaskGroup):
+            no_op.extend(
+                [t.fullname for t in task.all_tasks if t.status == TaskStatus.Cancelled]
+            )
             success.extend(
                 [t.fullname for t in task.all_tasks if t.status != TaskStatus.Cancelled]
             )
         else:
             if task.status == TaskStatus.Cancelled:
-                # skip cancelled tasks (no-op)
-                continue
+                no_op.append(fullname)
             else:
                 success.append(fullname)
 
-    return TaskResponse(success=success, failure=failure, detail="\n".join(exception))
+    return TaskResponse(
+        success=success, failure=failure, exception=exception, no_op=no_op
+    )
 
 
 @app.get("/test", response_model=Response)

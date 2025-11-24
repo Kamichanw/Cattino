@@ -2,7 +2,6 @@ import click
 import sys
 import time
 
-from typing import Tuple
 from copy import deepcopy
 from rich.table import Table
 from rich.live import Live
@@ -20,11 +19,22 @@ from cattino.cli.console import console
     required=False,
     help="Filter tasks by a python expression that accept a argument 'task'.",
 )
+@click.argument("name", required=False, type=str)
+@click.option(
+    "--regex",
+    "-r",
+    "use_regex",
+    is_flag=True,
+    default=False,
+    help="Interpret the provided name as a regular expression.",
+)
 @click.argument("attrs", nargs=-1, type=str, required=False)
 @fetch_from_msgbox
 def list_cmd(
+    name: str | None,
     filter: str | None,
-    attrs: Tuple[str, ...],
+    use_regex: bool,
+    attrs: tuple[str, ...],
 ):
     """
     List tasks.
@@ -37,11 +47,11 @@ def list_cmd(
     \b
     Examples:
       meow list status
-      meow list --filter "task.status == TaskStatus.Waiting" status fullname
+      meow list --filter "task.status == waiting"
     """
     if "status" not in attrs:
         attrs = ("status",) + attrs
-    response = BackendRequest.list(filter, attrs)
+    response = BackendRequest.list(name=name, filter=filter, attrs=attrs, use_regex=use_regex)
     if response.error():
         console.print(response.detail)
         sys.exit(1)
@@ -61,7 +71,7 @@ def list_cmd(
     with Live(table, console=console, refresh_per_second=4) as live:
         while True:
             time.sleep(1.0)
-            resp = BackendRequest.list(filter, attrs)
+            resp = BackendRequest.list(name=name, filter=filter, attrs=attrs, use_regex=use_regex)
             if resp.error():
                 console.print(f"Error: {resp.detail}")
                 break

@@ -18,7 +18,7 @@ def export(task: AbstractTask) -> None:
     if TASK_GLOBALS_KEY not in caller_globals:
         caller_globals[TASK_GLOBALS_KEY] = []
 
-    if issubclass(type(task), Task) or issubclass(type(task), TaskGroup):
+    if isinstance(task, (Task, TaskGroup)):
         caller_globals[TASK_GLOBALS_KEY].append(task)
     else:
         raise TypeError(

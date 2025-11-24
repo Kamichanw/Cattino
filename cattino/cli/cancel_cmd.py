@@ -3,7 +3,7 @@ import sys
 
 from cattino.cli.main import main
 from cattino.comms import BackendRequest
-from cattino.cli.utils import MagicString, fetch_from_msgbox, print_response, get_path_tree_str
+from cattino.cli.utils import MagicString, fetch_from_msgbox, print_response
 from cattino.cli.console import console
 
 
@@ -56,20 +56,6 @@ def cancel(all: bool, use_regex: bool, filter_: str | None, name: str | None):
         sys.exit(1)
 
     response = BackendRequest.cancel(name, use_regex=use_regex, filter=filter_)
-    print_response(
-        response,
-        lambda success: (
-            f"{len(success) if success else 0} tasks cancelled successfully."
-            if response.ok()
-            else (
-                f"{get_path_tree_str(success) } cancelled successfully."
-                if success
-                else None
-            )
-        ),
-        lambda failure: (
-            f"{get_path_tree_str(failure) } failed to cancell." if failure else None
-        ),
-    )
+    print_response(response)
     if response.error():
         sys.exit(1)

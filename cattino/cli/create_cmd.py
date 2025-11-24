@@ -13,7 +13,6 @@ from cattino.cli.main import main
 from cattino.cli.utils import (
     fetch_from_msgbox,
     print_response,
-    get_path_tree_str,
     RequiresMemo,
 )
 from cattino.cli.console import console
@@ -165,7 +164,7 @@ def create(
         if priority is not None:
             task.priority = priority
 
-        if issubclass(type(task), DeviceRequiredTask):
+        if isinstance(task, DeviceRequiredTask):
             if requires_memory_per_device is not None:
                 task.requires_memory_per_device = requires_memory_per_device  # type: ignore
             if min_devices is not None:
@@ -245,18 +244,4 @@ def create(
     else:
         expanded_tasks = builtins.list(itertools.chain.from_iterable(tasks))
     response = BackendRequest.create(expanded_tasks, extra_paths=extra_paths)
-    print_response(
-        response,
-        lambda success: (
-            f"{len(success) if success else 0} tasks created successfully."
-            if response.ok()
-            else (
-                f"{get_path_tree_str(success)} created successfully."
-                if success
-                else None
-            )
-        ),
-        lambda failure: (
-            f"{get_path_tree_str(failure)} failed to create." if failure else None
-        ),
-    )
+    print_response(response)

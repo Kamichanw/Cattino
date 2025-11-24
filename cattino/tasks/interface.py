@@ -23,14 +23,12 @@ class TaskStatus(enum.Enum):
     def _generate_next_value_(name, start, count, last_values):
         return name
 
-    MultiStatus = enum.auto()  # only used for group
-    Cancelled = (
-        enum.auto()
-    )  # The task has been cancelled and will not be scheduled for execution.
-    Waiting = enum.auto()
-    Running = enum.auto()
-    Done = enum.auto()  # The task has finished successfully
-    Failed = enum.auto()  # The task has finished with an error
+    MultiStatus = "MultiStatus"  # only used for group
+    Cancelled = "Cancelled"
+    Waiting = "Waiting"
+    Running = "Running"
+    Done = "Done"  # The task has finished successfully
+    Failed = "Failed"  # The task has finished with an error
 
     def __str__(self):
         return self.name
@@ -252,7 +250,7 @@ class DeviceRequiredTask(Task):
         Get the memory required per device in MiB.
         """
         return self._requires_memory_per_device
-    
+
     @property
     def is_ready(self) -> bool:
         """
@@ -381,7 +379,7 @@ class TaskGroup(AbstractTask):
 
         all_tasks: list[Task] = list(
             itertools.chain(
-                *[[t] if not issubclass(type(t), TaskGroup) else t.all_tasks for t in tasks]  # type: ignore
+                *[[t] if not isinstance(t, TaskGroup) else t.all_tasks for t in tasks]  # type: ignore
             )
         )
 
@@ -537,8 +535,8 @@ class TaskGroup(AbstractTask):
                 if child.children:
                     subtasks.append(build_group(child))
                 else:
-                    if child.data is None or not issubclass(
-                        type(child.data), AbstractTask
+                    if child.data is None or not isinstance(
+                        child.data, AbstractTask
                     ):
                         raise ValueError(
                             f"Invalid task '{name}' in group '{node.name}'."

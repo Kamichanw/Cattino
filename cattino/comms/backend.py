@@ -115,12 +115,14 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("list")
-    def list(filter: str | None, attrs: Tuple[str, ...], **kwargs) -> Response:
+    def list(name: str | None = None, filter: str | None = None, attrs: Tuple[str, ...] = (), use_regex: bool = False, **kwargs) -> Response:
         """
         Query specified attributes of tasks that match the given condition.
 
         Args:
+            name (str, *optional*): The full name of task or regex pattern to match task names. If None, query all tasks.
             filter (str, *optional*): A filter condition to apply to the task query.
+            use_regex (bool): Whether to match task names using regex. Default is False.
             attrs (Tuple[str]): The attributes to retrieve for the matching tasks.
             **kwargs: Additional keyword arguments for the request.
 
@@ -129,7 +131,7 @@ class BackendRequest(Request):
                 It also contains a field `results` that is a list of dictionaries, each containing the
                 specified attributes of a task and its name.
         """
-        return Request.get(**kwargs, params={"filter": filter, "attrs": " ".join(attrs)})  # type: ignore
+        return Request.get(**kwargs, params={"name": name, "use_regex": str(bool(use_regex)), "filter": filter, "attrs": " ".join(attrs)})  # type: ignore
 
     @staticmethod
     @communicate("set")

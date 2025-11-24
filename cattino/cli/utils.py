@@ -6,7 +6,9 @@ import gettext
 from functools import wraps
 from datetime import datetime
 from rich.logging import RichHandler
-from typing import Callable, Sequence, Any, Literal
+from rich.tree import Tree as RichTree
+from rich.text import Text
+from typing import Sequence, Any, Literal
 
 from cattino.comms import Response, MsgBoxRequest
 from cattino.core.path_tree import PathTree
@@ -14,42 +16,68 @@ from cattino.utils import Magics
 from cattino.cli.console import console
 
 
-def print_response(
-    response: Response,
-    success_msg_fn: Callable[[list[str] | None], str | None],
-    failure_msg_fn: Callable[[list[str] | None], str | None],
-):
+def print_response(response: Response):
     """
-    Print the response from the backend. It takes a response object and
-    success, failure, and optional no-op message producers. These producers optionally
-    take a list of task names and returns a message to be printed.
-
-    For success_msg_fn, it should additionally handle the case when the response.ok() is True.
+    Build and print a rich.Tree that shows per-task status with icons and colors.
     """
-    success_msg = success_msg_fn(getattr(response, "success", None))
-    failure_msg = failure_msg_fn(getattr(response, "failure", None))
+    success = list(getattr(response, "success", []) or [])
+    failure = list(getattr(response, "failure", []) or [])
+    no_op = list(getattr(response, "no_op", []) or [])
+    exception = getattr(response, "exception", None)
 
-    def echo(msg: str | None):
-        if msg:
-            console.print(msg)
+    # build mapping from failure fullname -> exception message when exception is list
+    exception_map: dict[str, str] = (
+        {name: str(msg) for name, msg in zip(failure, exception)}
+        if isinstance(exception, list)
+        else {}
+    )
 
-    echo(success_msg)
-    echo(failure_msg)
+    ordered = []
+    for name_list, status in (
+        (success, "success"),
+        (failure, "failure"),
+        (no_op, "no_op"),
+    ):
+        ordered.extend((n, status) for n in name_list)
 
+    tree = PathTree(sep="/")
+    for fullname, status in ordered:
+        msg = None
+        if status == "failure" and fullname in exception_map:
+            msg = exception_map[fullname]
+        tree.set_node(fullname, (status, msg))
 
-def get_path_tree_str(names: list[str]):
-    """
-    Convert a list of names to a path tree string, which collapses common prefixes and
-    groups siblings with curly braces.
+    root = RichTree(Text("Tasks", style="bold"))
 
-    Examples:
-        >>> get_path_tree_str(['a/b/c', 'a/b/d', 'a/e', 'f'])
-        "a/{b/{c, d}, e}, f"
-    """
-    tree = PathTree()
-    for name in names:
-        tree.set_node(name, None)
-    return str(tree)
+    ICONS = {"success": "✔", "failure": "✖", "no_op": "○"}
+    COLORS = {"success": "green", "failure": "red", "no_op": "white"}
+
+    def render_node(parent_branch, node):
+        if node.children:
+            branch = parent_branch.add(Text(node.name))
+            for child in node.children.values():
+                render_node(branch, child)
+        else:
+            status, msg = node.data
+            t = Text()
+            t.append(
+                f"{ICONS[status]} {node.name}",
+                style=("white" if isinstance(exception, str) else COLORS[status]),
+            )
+            if msg:
+                t.append(" – ")
+                t.append(str(msg), style="red")
+            parent_branch.add(t)
+
+    # if tree has no roots (no names), nothing to show
+    if tree.roots:
+        for node in tree.roots.values():
+            render_node(root, node)
+        console.print(root)
+
+    # if exception is a plain string, print it after the tree
+    if isinstance(exception, str):
+        console.print(Text(str(exception), style="red"))
 
 
 logger = logging.getLogger("mailbox_logger")

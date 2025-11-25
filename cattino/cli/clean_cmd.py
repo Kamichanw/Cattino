@@ -42,8 +42,16 @@ from cattino.cli.console import console
     default=False,
     help="Print cleaned cache directories or files.",
 )
+@click.option(
+    "--yes",
+    "-y",
+    "yes",
+    is_flag=True,
+    default=False,
+    help="Automatically confirm operations and proceed without asking the user.",
+)
 @fetch_from_msgbox
-def clean(before: datetime | None, after: datetime | None, all: bool, verbose: bool):
+def clean(before: datetime | None, after: datetime | None, all: bool, verbose: bool, yes: bool):
     """
     Clean cache directories.
 
@@ -91,10 +99,11 @@ def clean(before: datetime | None, after: datetime | None, all: bool, verbose: b
 
     if all:
         if before or after:
-            click.confirm(
-                "--all/-A option will ignore datetime options and delete all cache files and settings. Continue?",
-                abort=True,
-            )
+            if not yes:
+                click.confirm(
+                    "--all/-A option will ignore datetime options and delete all cache files and settings. Continue?",
+                    abort=True,
+                )
         if response.error():
             settings.clear()
 

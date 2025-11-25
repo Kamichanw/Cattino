@@ -51,6 +51,8 @@ def list_cmd(
     """
     if "status" not in attrs:
         attrs = ("status",) + attrs
+    if "fullname" not in attrs:
+        attrs = ("fullname",) + attrs
     response = BackendRequest.list(name=name, filter=filter, attrs=attrs, use_regex=use_regex)
     if response.error():
         console.print(response.detail)
@@ -63,10 +65,10 @@ def list_cmd(
     def make_table(results_list):
         t = Table("fullname", *attrs)
         for result in results_list:
-            t.add_row(result["name"], *[str(result.get(attr) or "-") for attr in attrs])
+            t.add_row(result["fullname"], *[str(result.get(attr) or "-") for attr in attrs])
         return t
 
-    prev_snapshot = [(r["name"], tuple(r.get(a) for a in attrs)) for r in results]
+    prev_snapshot = [(r["fullname"], tuple(r.get(a) for a in attrs)) for r in results]
     table = make_table(results)
     with Live(table, console=console, refresh_per_second=4) as live:
         while True:
@@ -77,7 +79,7 @@ def list_cmd(
                 break
             new_results = resp.results or []  # type: ignore
             new_snapshot = [
-                (r["name"], tuple(r.get(a) for a in attrs)) for r in new_results
+                (r["fullname"], tuple(r.get(a) for a in attrs)) for r in new_results
             ]
             if new_snapshot != prev_snapshot:
                 prev_snapshot = deepcopy(new_snapshot)

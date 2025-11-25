@@ -234,7 +234,7 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("test")
-    def test(name: str | None = None, **kwargs) -> Response:
+    def test(**kwargs) -> Response:
         """
         Query the backend or a specific task whether it is running.
 
@@ -247,10 +247,7 @@ class BackendRequest(Request):
                 2. If the target is not running, the status code will be 202.
                 3. If the target is running, the status code will be 200 and the PID will be returned (if possible).
         """
-        if name is None or name == "backend":
-            return Request.get(kwargs["url"])  # type: ignore
-        else:
-            return Request.get(f"{kwargs['url']}/{name}")  # type: ignore
+        return Request.get(kwargs["url"])  # type: ignore
 
 
 def where() -> str:

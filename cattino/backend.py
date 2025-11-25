@@ -315,12 +315,13 @@ async def list(
                 return None
         return val
 
-    return Response(status_code=status.HTTP_200_OK, results=[
-        {
-            "name": task.fullname,
-            **{attr: _get_nested_attr(task, attr) for attr in attrs}
-        } for task in filtered_tasks
-    ])
+    return Response(
+        status_code=status.HTTP_200_OK,
+        results=[
+            {attr: _get_nested_attr(task, attr) for attr in attrs}
+            for task in filtered_tasks
+        ],
+    )
 
 
 @app.post("/set", response_model=Response)
@@ -410,44 +411,7 @@ async def create_task(request: BackendRequest = Depends(load_backend_request)):
 @app.get("/test", response_model=Response)
 @send_msg_on_error(tag="backend")
 async def test_backend():
-    return Response(
-        status_code=status.HTTP_200_OK,
-        pid=os.getpid(),
-        path=get_cache_dir("backend"),
-        home=get_cattino_home(),
-    )
-
-
-@app.get("/test/{name:path}", response_model=Response)
-@send_msg_on_error(tag="backend")
-async def test_task(name: str):
-    scheduler: TaskScheduler = app.state.task_scheduler
-    if (tasks := await scheduler.get_tasks(name)) is None:
-        return Response(
-            status_code=status.HTTP_404_NOT_FOUND, pid=None, path=None, home=None
-        )
-    if len(tasks) != 1:
-        return Response(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            pid=None,
-            path=None,
-            home=None,
-            detail=f"Got multiple names {name} in backend.",
-        )
-    if (task := tasks[0]).status != TaskStatus.Running:
-        return Response(
-            status_code=status.HTTP_202_ACCEPTED,
-            pid=None,
-            path=get_cache_dir(name),
-            home=get_cattino_home(),
-        )
-
-    return Response(
-        status_code=status.HTTP_200_OK,
-        pid=getattr(task, "pid", None),
-        path=get_cache_dir(name),
-        home=get_cattino_home(),
-    )
+    return Response(status_code=status.HTTP_200_OK, pid=os.getpid())
 
 
 @app.post("/exit", response_model=Response)

@@ -4,7 +4,6 @@ import dill
 
 from functools import wraps
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
 from fastapi import status
 
 from cattino import settings

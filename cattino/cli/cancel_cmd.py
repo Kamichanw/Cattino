@@ -56,6 +56,7 @@ def cancel(all: bool, use_regex: bool, filter_: str | None, name: str | None):
         sys.exit(1)
 
     response = BackendRequest.cancel(name, use_regex=use_regex, filter=filter_)
-    print_response(response)
     if response.error():
+        console.print(response.detail)
         sys.exit(1)
+    print_response(response)

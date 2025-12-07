@@ -45,7 +45,9 @@ from cattino.cli.console import console
 )
 @click.argument("name", type=str, required=False)
 @fetch_from_msgbox
-def resume(all: bool, use_regex: bool, filter_: str | None, name: str | None, yes: bool):
+def resume(
+    all: bool, use_regex: bool, filter_: str | None, name: str | None, yes: bool
+):
     """
     Resume cancelled or failed tasks.
 
@@ -72,15 +74,12 @@ def resume(all: bool, use_regex: bool, filter_: str | None, name: str | None, ye
         if name:
             print_confirm(name, use_regex, filter_)
         else:
-            click.confirm(
-                "[bold red]Are you sure you want to resume all tasks?[/bold red]",
-                abort=True,
-            )
+            click.confirm("Are you sure you want to resume all tasks?", abort=True)
 
     response = BackendRequest.resume(name, use_regex=use_regex, filter=filter_)
     if response.error():
         console.print(response.detail)
         sys.exit(1)
-    
+
     if yes:
         print_response(response)

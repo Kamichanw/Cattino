@@ -3,7 +3,7 @@ import time
 import sys
 import subprocess
 
-from typing import Sequence, Tuple
+from typing import Sequence
 from fastapi import status
 from pathlib import Path
 
@@ -115,7 +115,13 @@ class BackendRequest(Request):
 
     @staticmethod
     @communicate("list")
-    def list(name: str | None = None, filter: str | None = None, attrs: Tuple[str, ...] = (), use_regex: bool = False, **kwargs) -> Response:
+    def list(
+        name: str | None = None,
+        filter: str | None = None,
+        attrs: tuple[str, ...] = (),
+        use_regex: bool = False,
+        **kwargs,
+    ) -> Response:
         """
         Query specified attributes of tasks that match the given condition.
 

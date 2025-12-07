@@ -62,7 +62,7 @@ def set_cmd(args: tuple, use_regex: bool, filter_: str | None):
 
         # if there is a backend running, set for it
         if (response := BackendRequest.test()).ok() and getattr(
-            response, "home"
+            response, "home", None
         ) is not None:
             settings._home = response.home  # type: ignore
 

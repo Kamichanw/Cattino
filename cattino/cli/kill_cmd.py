@@ -86,7 +86,7 @@ def kill(all: bool, use_regex: bool, force: bool, filter_: str | None, yes: bool
             print_confirm(name, use_regex, filter_)
         else:
             click.confirm(
-                "[bold red]Are you sure you want to kill all tasks?[/bold red]", abort=True
+                "Are you sure you want to kill all tasks?", abort=True
             )
 
     response = BackendRequest.kill(name, force=force, use_regex=use_regex, filter=filter_)

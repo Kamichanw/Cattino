@@ -348,9 +348,6 @@ class TaskScheduler:
     async def cancel(self, task: Task) -> None:
         task.cancel()
         if task.status == TaskStatus.Cancelled:
-            async with self._task_graph_lock.writer_lock:
-                if hasattr(self._task_graph.nx_graph.nodes[task], "started"):
-                    del self._task_graph.nx_graph.nodes[task]["started"]
             async with self._group_info_lock:
                 if task in self._group_info:
                     self._group_info[task].remaining.add(task)
@@ -371,9 +368,7 @@ class TaskScheduler:
                     self._task_graph.remove_task(task)
 
         for task in tasks:
-            if task.status == TaskStatus.Running:
-                task.terminate(force=True)
-
+            task.cancel()
             async with self._task_graph_lock.writer_lock:
                 self._task_graph.remove_task(task)
 

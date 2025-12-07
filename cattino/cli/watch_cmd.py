@@ -12,7 +12,7 @@ from cattino.cli.utils import fetch_from_msgbox
 
 
 @main.command()
-@click.argument("fullname", type=str, required=False)
+@click.argument("fullname", type=str)
 @click.option(
     "--stream",
     "-s",
@@ -21,9 +21,9 @@ from cattino.cli.utils import fetch_from_msgbox
     help="Stream to watch. Defaults to stdout.",
 )
 @fetch_from_msgbox
-def watch(fullname: str | None, stream: str):
+def watch(fullname: str, stream: str):
     """
-    Redirect an output stream of the backend or a specific task to the terminal.
+    Redirect an output stream of a specific task to the terminal.
 
     If no task name is provided, the backend's output stream will be shown. Use
     `--stream` to choose `stdout` or `stderr`. The command follows the selected
@@ -34,21 +34,15 @@ def watch(fullname: str | None, stream: str):
       meow watch
       meow watch mytask --stream stderr
     """
-
-    if (backend_response := BackendRequest.test()).error():
-        console.print(backend_response.detail)
+    if (
+        response := BackendRequest.list(fullname, attrs=("status", "cache_dir"))
+    ).error():
+        console.print(response.detail)
         sys.exit(1)
-
-    if fullname is None:
-        fullname = "backend"
-    if (response := BackendRequest.test(fullname)).error() or getattr(
-        response, "path", None
-    ) is None:
-        print(response.status_code)
+    results = response.results[0] # type: ignore
+    if results["status"] not in ["Running", "Done"]:
         console.print(f"{fullname} does not exist or has not started yet.")
         sys.exit(1)
-
-    task_cache_dir = getattr(response, "path")
 
     PROGRESS_BAR_PATTERN = re.compile(r"\d+%\|.*\| \d+/\d+")
     is_running = threading.Event()
@@ -58,7 +52,11 @@ def watch(fullname: str | None, stream: str):
         while not is_running.is_set():
             time.sleep(2)
             try:
-                if not BackendRequest.test(fullname).ok():
+                live_response = BackendRequest.list(fullname, attrs=("status",))
+                if live_response.error():
+                    is_running.set()
+                status = live_response.results[0]["status"]  # type: ignore
+                if status != "Running":
                     is_running.set()
             except Exception:
                 is_running.set()
@@ -66,7 +64,7 @@ def watch(fullname: str | None, stream: str):
 
     threading.Thread(target=running_test, daemon=True).start()
 
-    with open_redirected_stream(task_cache_dir, stream, "r") as f:
+    with open_redirected_stream(results["cache_dir"], stream, "r") as f:
         # filter progress bars, and only output the last states
         exist_lines = f.readlines()
         last_progress_bar = None

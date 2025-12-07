@@ -63,12 +63,12 @@ def list_cmd(
         sys.exit(0)
 
     def make_table(results_list):
-        t = Table("fullname", *attrs)
+        t = Table(*attrs)
         for result in results_list:
-            t.add_row(result["fullname"], *[str(result.get(attr) or "-") for attr in attrs])
+            t.add_row(*[str(result.get(attr) or "-") for attr in attrs])
         return t
 
-    prev_snapshot = [(r["fullname"], tuple(r.get(a) for a in attrs)) for r in results]
+    prev_snapshot = [tuple(r.get(a) for a in attrs) for r in results]
     table = make_table(results)
     with Live(table, console=console, refresh_per_second=4) as live:
         while True:

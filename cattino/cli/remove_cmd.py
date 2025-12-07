@@ -77,7 +77,7 @@ def remove(all: bool, use_regex: bool, filter_: str | None, name: str | None, ye
             print_confirm(name, use_regex, filter_)
         else:
             click.confirm(
-                "[bold red]Are you sure you want to remove all tasks?[/bold red]", abort=True
+                "Are you sure you want to remove all tasks?", abort=True
             )
 
     response = BackendRequest.remove(name, use_regex=use_regex, filter=filter_)

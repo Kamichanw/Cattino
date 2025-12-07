@@ -5,7 +5,7 @@ import subprocess
 import multiprocessing
 import psutil
 
-from typing import Any, Callable, Dict, Optional, Union, overload
+from typing import Any, Callable, Union, overload
 
 
 from cattino.constants import CATTINO_RETRY_EXIT_CODE
@@ -143,7 +143,7 @@ class ProcTask(DeviceRequiredTask):
                 raise ValueError(
                     f"Task {self.name} requires more memory than the specified limit per device."
                 )
-        super(ProcTask, type(self)).requires_memory_per_device.__set__(self, value) # type: ignore
+        super(ProcTask, type(self)).requires_memory_per_device.__set__(self, value)  # type: ignore
 
     def start(self) -> None:
         if not self.is_ready:
@@ -151,14 +151,10 @@ class ProcTask(DeviceRequiredTask):
 
         is_cmd_task = hasattr(self, "cmd")
         task_env = self.env or os.environ
-        cache_dir = get_cache_dir(self)
-        merged_env = {
-            **task_env,
-            **self.visible_device_environ,
-            "CATTINO_TASK_HOME": cache_dir,
-        }
-        self._stdout = open_redirected_stream(cache_dir, "stdout")
-        self._stderr = open_redirected_stream(cache_dir, "stderr")
+        self.cache_dir = get_cache_dir(self)
+        merged_env = {**task_env, **self.visible_device_environ}
+        self._stdout = open_redirected_stream(self.cache_dir, "stdout")
+        self._stderr = open_redirected_stream(self.cache_dir, "stderr")
         if is_cmd_task:
             self.cmd = Magics.resolve(
                 self.cmd,
@@ -198,9 +194,6 @@ class ProcTask(DeviceRequiredTask):
 
             if exitcode == CATTINO_RETRY_EXIT_CODE:
                 self.resume()
-                # the status of the process has been changed to waiting, the on_end will not be called, so we
-                # need to release devices manually
-                self.release_devices()
 
     def resume(self) -> None:
         if self.status not in [TaskStatus.Running, TaskStatus.Waiting]:
@@ -212,7 +205,7 @@ class ProcTask(DeviceRequiredTask):
             parent = psutil.Process(self.pid)
             for child in parent.children(recursive=True):
                 child.kill() if force else child.terminate()
-            parent.kill() if force else parent.terminal()
+            parent.kill() if force else parent.terminate()
 
     def on_end(self) -> None:
         super().on_end()

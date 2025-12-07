@@ -20,7 +20,6 @@ from cattino.comms import (
     Response,
     TaskResponse,
     Transmittable,
-    MsgBoxRequest,
     start_msgbox,
     send_msg_on_error,
 )
@@ -267,7 +266,7 @@ async def resume(request: BackendRequest = Depends(load_backend_request)):
     return await process_tasks(
         request.name,  # type: ignore
         scheduler.resume,
-        [TaskStatus.Cancelled, TaskStatus.Failed],
+        [TaskStatus.Cancelled, TaskStatus.Failed, TaskStatus.Done],
         use_regex=request.use_regex,  # type: ignore
         filter=request.filter,  # type: ignore
     )
@@ -310,8 +309,6 @@ async def list(
             try:
                 val = getattr(val, part)
             except Exception:
-                return None
-            if val is None:
                 return None
         return val
 
@@ -411,7 +408,12 @@ async def create_task(request: BackendRequest = Depends(load_backend_request)):
 @app.get("/test", response_model=Response)
 @send_msg_on_error(tag="backend")
 async def test_backend():
-    return Response(status_code=status.HTTP_200_OK, pid=os.getpid())
+    return Response(
+        status_code=status.HTTP_200_OK,
+        pid=os.getpid(),
+        path=get_cache_dir("backend"),
+        home=get_cattino_home(),
+    )
 
 
 @app.post("/exit", response_model=Response)

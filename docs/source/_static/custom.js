@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", function () {
     script.setAttribute("runllm-position", "BOTTOM_RIGHT");
     script.setAttribute("runllm-position-y", "120px");
     script.setAttribute("runllm-position-x", "20px");
-    script.setAttribute("runllm-assistant-id", "207");
+    script.setAttribute("runllm-assistant-id", "894");
   
     script.async = true;
     document.head.appendChild(script);

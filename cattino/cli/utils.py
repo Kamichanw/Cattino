@@ -11,7 +11,7 @@ from rich.tree import Tree as RichTree
 from rich.text import Text
 from typing import Sequence, Any, Literal
 
-from Cattino.cattino.comms.backend import BackendRequest
+from cattino.comms.backend import BackendRequest
 from cattino.comms import Response, MsgBoxRequest
 from cattino.core.path_tree import PathTree
 from cattino.utils import Magics
@@ -81,23 +81,27 @@ def print_response(response: Response):
     if isinstance(exception, str):
         console.print(Text(str(exception), style="red"))
 
+
 def print_confirm(name: str, use_regex: bool, filter_: str | None):
     """
     Print the confirmation message in tree format.
     """
-    response = BackendRequest.list(name, use_regex=use_regex, filter=filter_, attrs=("fullname",))
+    response = BackendRequest.list(
+        name, use_regex=use_regex, filter=filter_, attrs=("fullname",)
+    )
     if response.error():
         console.print(response.detail)
         sys.exit(1)
-    if not (results := response.results): # type: ignore
+    if not (results := response.results):  # type: ignore
         console.print("No tasks found.")
         sys.exit(0)
-    
+
     tree = PathTree(sep="/")
     for result in results:
         tree.set_node(result["fullname"], None)
 
     root = RichTree(Text("Tasks", style="bold"), hide_root=True)
+
     def render_node(parent_branch, node):
         if node.children:
             branch = parent_branch.add(Text(node.name))
@@ -105,16 +109,15 @@ def print_confirm(name: str, use_regex: bool, filter_: str | None):
                 render_node(branch, child)
         else:
             parent_branch.add(Text(node.name))
-    
+
     for node in tree.roots.values():
         render_node(root, node)
-        
+
     console.print(root)
     click.confirm(
-        "[bold red]Are you sure you want to proceed with the selected tasks?[/bold red]",
-        abort=True,
+        "Are you sure you want to proceed with the selected tasks?", abort=True
     )
-        
+
 
 logger = logging.getLogger("mailbox_logger")
 logger.setLevel(logging.INFO)

@@ -228,7 +228,7 @@ def create(
     if arg_keys:
         groups, expanded_tasks = {}, []
         for fullname, task_list in zip(fullnames, tasks):
-            if "/" in fullname:
+            if fullname and "/" in fullname:
                 # should form a task group
                 group_name, rest_name = fullname.split("/", 1)
                 # we need to remove name after the last '/', as it is task's name
